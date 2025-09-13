@@ -12,7 +12,7 @@ build/
 
 # Configs (ignore all JSON configs — esp. secrets)
 configs/*.json
-.env
+
 # Logs
 logs/
 *.log
