@@ -1,0 +1,47 @@
+# Node.js dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+.cache/
+
+# Configs (ignore all JSON configs — esp. secrets)
+configs/*.json
+.env
+# Logs
+logs/
+*.log
+*.log.*
+debug.log
+error.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Editor folders
+.vscode/
+.idea/
+*.swp
+
+# Coverage / testing
+coverage/
+*.lcov
+
+# Uploads (if you don’t want to track uploaded media in Git)
+uploads/
+
+# React build output (frontend)
+frontend/node_modules/
+frontend/build/
+"configs/natural-client-470214-h5-d9b3954c03ee.json" 
