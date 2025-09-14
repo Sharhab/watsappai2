@@ -75,11 +75,6 @@ const uploadQas = multer({storage: qasstorage})
 const upload = multer({ storage }).any();
 
 // ---------------------- Intro API ----------------------
-app.use(
-  "/uploads",
-  express.static(path.join(process.cwd(), "uploads"), { maxAge: "1d", etag: true })
-);
-
 // Save or update int//ro
 
 // app.post("/api/intro", upload, async (req, res) => {
