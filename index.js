@@ -568,7 +568,7 @@ app.post('/webhook', async (req, res) => {
       for (const step of introSequence) {
         if (!step) continue;
 
-        if (tep.type === 'text') {
+        if (step.type === 'text') {
           await client.messages.create({
             from: 'whatsapp:+14155238886',
             to: from,
