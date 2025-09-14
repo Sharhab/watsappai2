@@ -110,7 +110,8 @@ app.use(
 
 app.post("/api/intro", upload, async (req, res) => {
   try {
-    const rawSeq = JSON.parse(req.body.sequence); // comes from frontend
+    // Parse sequence JSON from frontend
+    const rawSeq = JSON.parse(req.body.sequence);
 
     const sequence = await Promise.all(
       rawSeq.map(async (step, i) => {
@@ -118,30 +119,30 @@ app.post("/api/intro", upload, async (req, res) => {
 
         let fileUrl = null;
         if (file) {
-          // Upload to Cloudinary (detect resource type automatically)
+          // Upload to Cloudinary
           const resourceType =
-            step.type === "video" ? "video" :
-            step.type === "audio" ? "video" : // audio files need resource_type=video in Cloudinary
-            "auto";
-
+            step.type === "video" ? "video" : step.type === "audio" ? "video" : "auto";
           fileUrl = await uploadToCloudinary(file.path, resourceType);
+
+          // cleanup local temp file
+          fs.unlinkSync(file.path);
         }
-          console.log(sequence);
+
         return {
           type: step.type,
-          content: step.type === "text" ? req.body[`step${i}_content`] || step.content : null,
-          fileUrl, // ✅ Cloudinary URL
+          content: step.type === "text" ? step.content : null,
+          fileUrl: fileUrl,
         };
       })
     );
 
-    // Save to DB
+    // Save to MongoDB
     const introDoc = new Intro({ sequence });
     await introDoc.save();
 
-    res.status(201).json({ success: true, intro: introDoc });
+    res.json({ success: true, intro: introDoc });
   } catch (err) {
-    console.error("❌ Failed to save intro:", err.message);
+    console.error("❌ Intro upload failed:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
