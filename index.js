@@ -574,6 +574,7 @@ for (const step of introSequence) {
       to: from,
       body: step.content,
     });
+
 } else if ((step.type === "video" || step.type === "audio") && step.fileUrl) {
   let safeUrl;
 
@@ -582,7 +583,14 @@ for (const step of introSequence) {
     safeUrl = step.fileUrl;
   } else {
     // Local file, re-encode before sending
-    const localPath = path.join(__dirname, step.fileUrl.replace(/^\//, ""));
+    const localPath = path.join(process.cwd(), step.fileUrl.replace(/^\//, "")); // safer in Render
+
+    // Verify file exists before ffmpeg
+    if (!fs.existsSync(localPath)) {
+      console.error("❌ File missing before encoding:", localPath);
+      return;
+    }
+
     const safePath = await encodeForWhatsApp(localPath, step.type);
 
     // Serve via your public base URL
@@ -590,6 +598,7 @@ for (const step of introSequence) {
   }
 
   console.log(`➡️ Sending ${step.type.toUpperCase()}: ${safeUrl}`);
+
   await client.messages.create({
     from: "whatsapp:+14155238886",
     to: from,
@@ -597,7 +606,7 @@ for (const step of introSequence) {
   });
 }
 }
-  session.hasReceivedWelcome = true;
+    session.hasReceivedWelcome = true;
   await session.save();
   console.log('✅ Intro sequence sent from DB and session updated.');
 
