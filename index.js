@@ -13,7 +13,6 @@ import { exec } from "child_process";
 import path from "path";
 import mongoose from "mongoose";
 import cors from "cors";
-
 import Intro from "./models/Intro.js";
 import speech from "@google-cloud/speech"; // Google Speech SDK
 import QA from "./models/QA.js";
@@ -23,6 +22,7 @@ import { GoogleAuth } from "google-auth-library";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
 
 
 const app = express();
@@ -100,7 +100,11 @@ const upload = multer({ storage }).any();
 // }
 
 // ---------------------- Intro API ----------------------
-app.use("/uploads", express.static("uploads"));
+app.use(
+  "/uploads",
+  express.static(path.join(process.cwd(), "uploads"), { maxAge: "1d", etag: true })
+);
+
 // Save or update int//ro
 app.post("/api/intro", upload, async (req, res) => {
   try {
@@ -276,6 +280,32 @@ export function loadGoogleCredentials() {
     universe_domain: process.env["gcp-universe_domain"],
   };
 }
+
+//---validattion for url ------
+// Accept only proper media extensions Twilio supports
+const ALLOWED_EXT = new Set([".mp3", ".mp4", ".wav", ".ogg", ".amr"]);
+
+function toAbsoluteUrl(fileUrl) {
+  if (!fileUrl) return "";
+  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
+  return `${PUBLIC_BASE_URL}/${fileUrl.replace(/^\//, "")}`;
+}
+
+function hasValidExt(url) {
+  const m = url.toLowerCase().match(/\.(mp3|mp4|wav|ogg|amr)(\?.*)?$/);
+  return !!m && ALLOWED_EXT.has(`.${m[1]}`);
+}
+
+async function isReachable(url) {
+  try {
+    const r = await axios.head(url, { timeout: 5000, maxRedirects: 3 });
+    return r.status >= 200 && r.status < 400;
+  } catch (e) {
+    console.warn("⚠️ Media HEAD failed:", url, e.response?.status || e.message);
+    return false;
+  }
+}
+//--google auth=====
 
 const googleAuth = new GoogleAuth({
   credentials: loadGoogleCredentials(),
@@ -570,27 +600,37 @@ app.post('/webhook', async (req, res) => {
             to: from,
             body: step.content || '',
           });
-        } else if (step.type === 'video' || step.type === 'audio') {
-          if (!step.fileUrl) {
-            console.warn(`⚠️ Missing fileUrl for step type=${step.type}`);
-            continue;
-          }
+} else if (step.type === 'video' || step.type === 'audio') {
+  if (!step.fileUrl) {
+    console.warn(`⚠️ Missing fileUrl for step type=${step.type}`);
+    continue;
+  }
 
-          // Ensure fileUrl is absolute
-          let safeUrl = step.fileUrl;
-          if (!safeUrl.startsWith('http')) {
-            const base = process.env.PUBLIC_BASE_URL || '';
-            safeUrl = `${base.replace(/\/$/, '')}/${step.fileUrl.replace(/^\//, '')}`;
-          }
+  let safeUrl = toAbsoluteUrl(step.fileUrl);
 
-          console.log(`➡️ Sending ${step.type.toUpperCase()}: ${safeUrl}`);
-          await client.messages.create({
-            from: 'whatsapp:+14155238886',
-            to: from,
-            mediaUrl: [safeUrl],
-          });
+  // Log the URL we will send
+  console.log(`➡️ ${step.type.toUpperCase()} URL (raw): ${step.fileUrl}`);
+  console.log(`➡️ ${step.type.toUpperCase()} URL (final): ${safeUrl}`);
+
+  // Validate extension
+  if (!hasValidExt(safeUrl)) {
+    console.warn(`⚠️ Skipping media with bad extension: ${safeUrl}`);
+    continue;
+  }
+
+  // Verify the URL is reachable before sending
+  if (!(await isReachable(safeUrl))) {
+    console.warn(`⚠️ Skipping unreachable media URL: ${safeUrl}`);
+    continue;
+  }
+
+  await client.messages.create({
+    from: 'whatsapp:+14155238886',
+    to: from,
+    mediaUrl: [safeUrl],
+  });
+}
         }
-      }
 
       session.hasReceivedWelcome = true;
       await session.save();
@@ -615,28 +655,50 @@ app.post('/webhook', async (req, res) => {
 
       if (matchedQA.answerAudio) {
         let safeUrl = matchedQA.answerAudio;
+
         if (!safeUrl.startsWith('http')) {
           const base = process.env.PUBLIC_BASE_URL || '';
           safeUrl = `${base.replace(/\/$/, '')}/${safeUrl.replace(/^\//, '')}`;
         }
-        console.log('📤 Sending audio answer:', safeUrl);
-        await client.messages.create({
-          from: 'whatsapp:+14155238886',
-          to: from,
-          mediaUrl: [safeUrl],
-        });
+
+        console.log('📤 Audio answer (final URL):', safeUrl);
+
+        if (/\.(mp3|wav|ogg|amr)(\?.*)?$/i.test(safeUrl)) {
+          try {
+            await client.messages.create({
+              from: 'whatsapp:+14155238886',
+              to: from,
+              mediaUrl: [safeUrl],
+            });
+          } catch (err) {
+            console.warn('⚠️ Failed to send audio answer:', err.message);
+          }
+        } else {
+          console.warn('⚠️ Skipping audio answer, invalid extension:', safeUrl);
+        }
       } else if (matchedQA.answerVideo) {
         let safeUrl = matchedQA.answerVideo;
+
         if (!safeUrl.startsWith('http')) {
           const base = process.env.PUBLIC_BASE_URL || '';
           safeUrl = `${base.replace(/\/$/, '')}/${safeUrl.replace(/^\//, '')}`;
         }
-        console.log('📤 Sending video answer:', safeUrl);
-        await client.messages.create({
-          from: 'whatsapp:+14155238886',
-          to: from,
-          mediaUrl: [safeUrl],
-        });
+
+        console.log('📤 Video answer (final URL):', safeUrl);
+
+        if (/\.(mp4)(\?.*)?$/i.test(safeUrl)) {
+          try {
+            await client.messages.create({
+              from: 'whatsapp:+14155238886',
+              to: from,
+              mediaUrl: [safeUrl],
+            });
+          } catch (err) {
+            console.warn('⚠️ Failed to send video answer:', err.message);
+          }
+        } else {
+          console.warn('⚠️ Skipping video answer, invalid extension:', safeUrl);
+        }
       }
     } else {
       console.log('🛟 No match; sending fallback.');
@@ -645,6 +707,7 @@ app.post('/webhook', async (req, res) => {
         to: from,
         body: 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.',
       });
+
     }
   } catch (error) {
     console.error('❌ Twilio send error:', error?.message || error);
