@@ -126,7 +126,7 @@ app.post("/api/intro", upload, async (req, res) => {
 
           fileUrl = await uploadToCloudinary(file.path, resourceType);
         }
-
+          console.log(sequence);
         return {
           type: step.type,
           content: step.type === "text" ? req.body[`step${i}_content`] || step.content : null,
