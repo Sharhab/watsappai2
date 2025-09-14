@@ -18,7 +18,7 @@ import Intro from "./models/Intro.js";
 import speech from "@google-cloud/speech"; // Google Speech SDK
 import QA from "./models/QA.js";
 import CustomerSession from "./models/CustomerSession.js";
-//import { encodeForWhatsApp } from "./utils/encodeMedia.js";
+import { encodeForWhatsApp } from "./utils/encodeMedia.js";
 import { GoogleAuth } from "google-auth-library";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -582,8 +582,8 @@ for (const step of introSequence) {
     safeUrl = step.fileUrl;
   } else {
     // Local file, re-encode before sending
-    const safePath = path.join(__dirname, step.fileUrl.replace(/^\//, ""));
-    //const safePath = await encodeForWhatsApp(localPath, step.type);
+    const localPath = path.join(__dirname, step.fileUrl.replace(/^\//, ""));
+    const safePath = await encodeForWhatsApp(localPath, step.type);
 
     // Serve via your public base URL
     safeUrl = `${baseUrl}/uploads/${path.basename(safePath)}`;
