@@ -1,5 +1,5 @@
-const { exec } = require("child_process");
-const path = require("path");
+import { exec } from "child_process";
+import path from "path";
 
 /**
  * Re-encode a file to WhatsApp-safe format
@@ -7,7 +7,7 @@ const path = require("path");
  * @param {string} type - "audio" | "video"
  * @returns {Promise<string>} - Path to safe re-encoded file
  */
-function encodeForWhatsApp(inputPath, type) {
+export function encodeForWhatsApp(inputPath, type) {
   return new Promise((resolve, reject) => {
     const ext = type === "video" ? ".mp4" : ".mp3";
     const safePath = path.join(
@@ -32,5 +32,3 @@ function encodeForWhatsApp(inputPath, type) {
     });
   });
 }
-
-module.exports = { encodeForWhatsApp };

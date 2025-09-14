@@ -1,25 +1,35 @@
 // index.js
-require('dotenv').config();
-const bodyParser = require('body-parser');
-const multer = require('multer');
-const express = require('express');
-const twilio = require('twilio');
-const stringSimilarity = require('string-similarity');
-const fs = require('fs');
-const axios = require('axios');
-const { exec } = require('child_process');
-const path = require('path');
-const mongoose = require('mongoose');
-const cors = require('cors'); 
-const Intro = require("./models/Intro");
-const speech = require('@google-cloud/speech'); // Google Speech SDK
-const QA = require('./models/QA');
-const CustomerSession = require('./models/CustomerSession');
+import dotenv from "dotenv";
+dotenv.config();
+import { fileURLToPath } from "url";
+import bodyParser from "body-parser";
+import multer from "multer";
+import express from "express";
+import twilio from "twilio";
+import stringSimilarity from "string-similarity";
+import fs from "fs";
+import axios from "axios";
+import { exec } from "child_process";
+import path from "path";
+import mongoose from "mongoose";
+import cors from "cors";
+
+import Intro from "./models/Intro.js";
+import speech from "@google-cloud/speech"; // Google Speech SDK
+import QA from "./models/QA.js";
+import CustomerSession from "./models/CustomerSession.js";
+import { encodeForWhatsApp } from "./utils/encodeMedia.js";
+import { GoogleAuth } from "google-auth-library";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+
 const app = express();
 const port = process.env.PORT || 3000;
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-const { encodeForWhatsApp } = require("./utils/encodeMedia");
+//const { loadGoogleCredentials } = require('./loadGoogleCredentials')
 
 // ✅ Enable CORS so React frontend (5173) can call backend (3000)
 app.use(cors({
@@ -249,19 +259,31 @@ mongoose
     process.exit(1);
   });
 // Prefer GOOGLE_APPLICATION_CREDENTIALS env; fallback to explicit key file if you kept one.
-const googleCredFromEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS
-  ? path.resolve(process.env.GOOGLE_APPLICATION_CREDENTIALS)
-  : null;
 
-const googleClient = new speech.SpeechClient(
-  googleCredFromEnv
-    ? {} // If GOOGLE_APPLICATION_CREDENTIALS is set, the SDK picks it up automatically
-    : {
-        // Fallback to a local key file path if you still want it:
-        // keyFilename: path.resolve('./configs/your-service-account.json'),
-      }
-);
-// ---- Utilities -------------------------------------------------------------
+
+export function loadGoogleCredentials() {
+  return {
+    type: process.env["gcp-type"],
+    project_id: process.env["gcp-project_id"],
+    private_key_id: process.env["gcp-private_key_id"],
+    private_key: process.env["gcp-private_key"]?.replace(/\\n/g, '\n'),
+    client_email: process.env["gcp-client_email"],
+    client_id: process.env["gcp-client_id"],
+    auth_uri: process.env["gcp-auth_uri"],
+    token_uri: process.env["gcp-token_uri"],
+    auth_provider_x509_cert_url: process.env["gcp-auth_provider_x509_cert_url"],
+    client_x509_cert_url: process.env["gcp-client_x509_cert_url"],
+    universe_domain: process.env["gcp-universe_domain"],
+  };
+}
+
+const googleAuth = new GoogleAuth({
+  credentials: loadGoogleCredentials(),
+  scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+});
+const googleClient = new speech.SpeechClient({ auth: googleAuth });
+
+
 /** Normalize Hausa-ish text (very light touch): lowercase + collapse spaces. */
 function normalizeText(s) {
   if (!s || typeof s !== 'string') return '';
