@@ -107,10 +107,12 @@ app.use(
 // });
 // Get intro
 
-
 app.post("/api/intro", upload, async (req, res) => {
   try {
-    // Parse sequence JSON from frontend
+    console.log("📩 Incoming intro upload...");
+    console.log("📝 Body:", req.body);
+    console.log("📦 Files:", req.files);
+
     const rawSeq = JSON.parse(req.body.sequence);
 
     const sequence = await Promise.all(
@@ -119,24 +121,25 @@ app.post("/api/intro", upload, async (req, res) => {
 
         let fileUrl = null;
         if (file) {
-          // Upload to Cloudinary
           const resourceType =
-            step.type === "video" ? "video" : step.type === "audio" ? "video" : "auto";
+            step.type === "video" ? "video" :
+            step.type === "audio" ? "video" : // Cloudinary stores audio under `video` resource type
+            "auto";
+
           fileUrl = await uploadToCloudinary(file.path, resourceType);
 
-          // cleanup local temp file
+          // cleanup local file
           fs.unlinkSync(file.path);
         }
 
         return {
           type: step.type,
           content: step.type === "text" ? step.content : null,
-          fileUrl: fileUrl,
+          fileUrl, // ✅ now Cloudinary permanent URL
         };
       })
     );
 
-    // Save to MongoDB
     const introDoc = new Intro({ sequence });
     await introDoc.save();
 
