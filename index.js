@@ -1,6 +1,7 @@
 // index.js
 import dotenv from "dotenv";
 dotenv.config();
+//import cloudinary from './configs/cloudinary.js'
 import { fileURLToPath } from "url";
 import bodyParser from "body-parser";
 import multer from "multer";
@@ -17,9 +18,9 @@ import Intro from "./models/Intro.js";
 import speech from "@google-cloud/speech"; // Google Speech SDK
 import QA from "./models/QA.js";
 import CustomerSession from "./models/CustomerSession.js";
-import { encodeForWhatsApp } from "./utils/encodeMedia.js";
+import uploadToCloudinary from "./utils/uploadToCloudinary.js";
+//import { encodeForWhatsApp } from "./utils/encodeMedia.js";
 import { GoogleAuth } from "google-auth-library";
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
@@ -72,32 +73,6 @@ const uploadQas = multer({storage: qasstorage})
   },
 });
 const upload = multer({ storage }).any();
-// 🔹 helper to safely convert audio
-// async function convertAudioIfNeeded(filePath) {
-//   return new Promise((resolve, reject) => {
-//     if (!filePath) return resolve(null);
-
-//     const ext = path.extname(filePath).toLowerCase();
-//     const dir = path.dirname(filePath);
-//     const base = path.basename(filePath, ext);
-
-//     // Only convert if not already mp3
-//     if (ext === ".mp3") {
-//       return resolve(filePath);
-//     }
-
-//     const outputPath = path.join(dir, `${base}-converted.mp3`);
-//     const cmd = `ffmpeg -i "${filePath}" -vn -ar 44100 -ac 2 -b:a 192k "${outputPath}" -y`;
-
-//     exec(cmd, (error) => {
-//       if (error) {
-//         console.error("❌ ffmpeg conversion failed:", error.message);
-//         return resolve(filePath); // fallback to original
-//       }
-//       resolve(outputPath);
-//     });
-//   });
-// }
 
 // ---------------------- Intro API ----------------------
 app.use(
@@ -106,30 +81,71 @@ app.use(
 );
 
 // Save or update int//ro
+
+// app.post("/api/intro", upload, async (req, res) => {
+//   try {
+//     const rawSeq = JSON.parse(req.body.sequence); // comes from frontend
+//     const sequence = rawSeq.map((step, i) => {
+//       const file = req.files.find((f) => f.fieldname === `step${i}_file`);
+// 
+//       return {
+//         type: step.type,
+//         content: step.type === "text" ? req.body[`step${i}_content`] || step.content : null,
+//         // ✅ Fixed: now returns full URL, not relative path
+//        fileUrl: file ? `/uploads/${file.filename}` : null,
+//       };
+//     });
+// 
+//     const intro = new Intro({ sequence });
+//     await intro.save();
+// 
+//     res.json(intro);
+//   } catch (err) {
+//     console.error("❌ Error saving intro:", err);
+//     res.status(400).json({ error: err.message });
+//   }
+// });
+// Get intro
+
+
 app.post("/api/intro", upload, async (req, res) => {
   try {
     const rawSeq = JSON.parse(req.body.sequence); // comes from frontend
-    const sequence = rawSeq.map((step, i) => {
-      const file = req.files.find((f) => f.fieldname === `step${i}_file`);
 
-      return {
-        type: step.type,
-        content: step.type === "text" ? req.body[`step${i}_content`] || step.content : null,
-        // ✅ Fixed: now returns full URL, not relative path
-       fileUrl: file ? `/uploads/${file.filename}` : null,
-      };
-    });
+    const sequence = await Promise.all(
+      rawSeq.map(async (step, i) => {
+        const file = req.files.find((f) => f.fieldname === `step${i}_file`);
 
-    const intro = new Intro({ sequence });
-    await intro.save();
+        let fileUrl = null;
+        if (file) {
+          // Upload to Cloudinary (detect resource type automatically)
+          const resourceType =
+            step.type === "video" ? "video" :
+            step.type === "audio" ? "video" : // audio files need resource_type=video in Cloudinary
+            "auto";
 
-    res.json(intro);
+          fileUrl = await uploadToCloudinary(file.path, resourceType);
+        }
+
+        return {
+          type: step.type,
+          content: step.type === "text" ? req.body[`step${i}_content`] || step.content : null,
+          fileUrl, // ✅ Cloudinary URL
+        };
+      })
+    );
+
+    // Save to DB
+    const introDoc = new Intro({ sequence });
+    await introDoc.save();
+
+    res.status(201).json({ success: true, intro: introDoc });
   } catch (err) {
-    console.error("❌ Error saving intro:", err);
-    res.status(400).json({ error: err.message });
+    console.error("❌ Failed to save intro:", err.message);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
-// Get intro
+
 app.get("/api/intro", async (req, res) => {
   try {
     const intro = await Intro.findOne();
@@ -305,6 +321,10 @@ async function isReachable(url) {
     return false;
   }
 }
+
+
+//--cloudinary------
+
 //--google auth=====
 
 const googleAuth = new GoogleAuth({
