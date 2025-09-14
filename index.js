@@ -502,6 +502,7 @@ async function transcribeAudio(mediaUrl) {
 //});
 
 app.post('/webhook', async (req, res) => {
+
   const from = req.body?.From;
   const numMedia = Number.parseInt(req.body?.NumMedia || '0', 10) || 0;
   let incomingMsg = req.body?.Body || '';
@@ -516,6 +517,7 @@ app.post('/webhook', async (req, res) => {
     const mediaUrl = req.body.MediaUrl0;
     const transcript = await transcribeAudio(mediaUrl);
     if (transcript) {
+
       incomingMsg = transcript;
     } else {
       console.warn('⚠️ Transcription returned null/empty; keeping text Body if any.');
@@ -555,63 +557,41 @@ app.post('/webhook', async (req, res) => {
 
   try {
     // First-time: send intro sequence once
-// First-time: send intro sequence once
-if (!session.hasReceivedWelcome) {
-  console.log('👋 Sending intro sequence...');
 
-  // Fetch from DB
-  const introDoc = await Intro.findOne();
-  const introSequence = introDoc?.sequence || [];
-  const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+    if (!session.hasReceivedWelcome) {
+      console.log('👋 Sending intro sequence...');
 
-for (const step of introSequence) {
-  if (!step) continue;
+      // Fetch from DB
 
-  if (step.type === "text" && step.content) {
-    console.log("➡️ Sending TEXT:", step.content);
-    await client.messages.create({
-      from: "whatsapp:+14155238886",
-      to: from,
-      body: step.content,
-    });
+      const introDoc = await Intro.findOne();
+      const introSequence = introDoc?.sequence || [];
+      for (const step of introSequence) {
+        if (!step) continue;
 
-} else if ((step.type === "video" || step.type === "audio") && step.fileUrl) {
-  let safeUrl;
+        if (tep.type === 'text') {
+          await client.messages.create({
+            from: 'whatsapp:+14155238886',
+            to: from,
+            body: step.content || '',
+          });
+        } else if (step.type === 'video' || step.type === 'audio') {
+          // ✅ use fileUrl (full public URL), not content
+          if (!step.fileUrl) continue;
+          await client.messages.create({
+            from: 'whatsapp:+14155238886',
+            to: from,
+            mediaUrl: [step.fileUrl],
+          });
+        }
+      }
 
-  if (step.fileUrl.startsWith("http")) {
-    // Already an external URL, just use it
-    safeUrl = step.fileUrl;
-  } else {
-    // Local file, re-encode before sending
-    const localPath = path.join(process.cwd(), step.fileUrl.replace(/^\//, "")); // safer in Render
-
-    // Verify file exists before ffmpeg
-    if (!fs.existsSync(localPath)) {
-      console.error("❌ File missing before encoding:", localPath);
-      return;
-    }
-
-    const safePath = await encodeForWhatsApp(localPath, step.type);
-
-    // Serve via your public base URL
-    safeUrl = `${baseUrl}/uploads/${path.basename(safePath)}`;
-  }
-
-  console.log(`➡️ Sending ${step.type.toUpperCase()}: ${safeUrl}`);
-
-  await client.messages.create({
-    from: "whatsapp:+14155238886",
-    to: from,
-    mediaUrl: [safeUrl], // ✅ now WhatsApp-safe
-  });
-}
-}
-    session.hasReceivedWelcome = true;
-  await session.save();
-  console.log('✅ Intro sequence sent from DB and session updated.');
-
+      session.hasReceivedWelcome = true;
+      await session.save();
+      console.log('✅ Intro sequence sent from DB and session updated.');
     } else if (matchedQA) {
+
       // ✅ Always answer, but for now we only send TEXT
+
       if (matchedQA.answerText) {
         console.log('💬 Sending text answer:', matchedQA.answerText);
         await client.messages.create({
@@ -625,6 +605,7 @@ for (const step of introSequence) {
           from: 'whatsapp:+14155238886',
           to: from,
           body: 'Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.',
+
         });
       }
 
@@ -634,17 +615,19 @@ for (const step of introSequence) {
           from: 'whatsapp:+14155238886',
           to: from,
           mediaUrl: [matchedQA.answerAudio],
+
         });
       } else if (matchedQA.answerVideo) {
         console.log('📤 Sending video answer:', matchedQA.answerVideo);
+
         await client.messages.create({
           from: 'whatsapp:+14155238886',
           to: from,
           mediaUrl: [matchedQA.answerVideo],
         });
       }
-
     } else {
+
       console.log('🛟 No match; sending fallback.');
       await client.messages.create({
         from: 'whatsapp:+14155238886',
@@ -652,14 +635,15 @@ for (const step of introSequence) {
         body:
           'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.',
       });
+
     }
   } catch (error) {
     console.error('❌ Twilio send error:', error?.message || error);
   }
 
   res.status(200).end();
-});
 
+});
 app.listen(port, () => {
   console.log(`✅ Herbal AI agent running on http://localhost:${port}`);
 });
