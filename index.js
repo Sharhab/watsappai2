@@ -95,12 +95,9 @@ const upload = multer({ storage }).any();
 app.post("/api/intro", introUpload, async (req, res) => {
   try {
     console.log("📝 Incoming /api/intro request");
-
-    // Debug raw body + files
     console.log("📦 req.body:", req.body);
     console.log("📂 req.files:", req.files);
 
-    // Validate sequence
     if (!req.body.sequence) {
       return res.status(400).json({ success: false, error: "Missing sequence field" });
     }
@@ -143,23 +140,22 @@ app.post("/api/intro", introUpload, async (req, res) => {
 
         let fileUrl = null;
         if (file) {
-          console.log(`📤 Uploading step${i}_file ->`, file.originalname);
+          // Decide resource_type based on step.type
+          let resourceType = "auto";
+          if (step.type === "video") resourceType = "video";
+          if (step.type === "audio") resourceType = "video"; // ✅ audio uploads use video type
 
-          // Pass buffer OR path depending on storage type
-          fileUrl = await uploadToCloudinary(
-            file.buffer || file.path,
-            step.type
+          console.log(
+            `📤 Uploading step${i}_file -> ${file.originalname} (type=${step.type}, resource_type=${resourceType})`
           );
 
+          fileUrl = await uploadToCloudinary(file.buffer || file.path, step.type);
           console.log(`✅ Cloudinary URL for step${i}:`, fileUrl);
         }
 
         return {
           type: step.type,
-          content:
-            step.type === "text"
-              ? req.body[`step${i}_content`] || step.content
-              : null,
+          content: step.type === "text" ? req.body[`step${i}_content`] || step.content : null,
           fileUrl,
         };
       })
@@ -171,11 +167,9 @@ app.post("/api/intro", introUpload, async (req, res) => {
     res.json({ success: true, intro });
   } catch (err) {
     console.error("❌ Intro upload failed:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message,
-      stack: err.stack,
-    });
+    res
+      .status(500)
+      .json({ success: false, error: err.message, stack: err.stack });
   }
 });
 
