@@ -104,33 +104,29 @@ const upload = multer({ storage }).any();
 
 app.post("/api/intro", upload, async (req, res) => {
   try {
-    console.log("📩 Incoming intro upload...");
-    console.log("📝 Body:", req.body);
-    console.log("📦 Files:", req.files);
-
     const rawSeq = JSON.parse(req.body.sequence);
 
     const sequence = await Promise.all(
       rawSeq.map(async (step, i) => {
-        const file = req.files.find((f) => f.fieldname === `step${i}_file`);
+        const file = req.files.find(f => f.fieldname === `step${i}_file`);
 
         let fileUrl = null;
         if (file) {
           const resourceType =
             step.type === "video" ? "video" :
-            step.type === "audio" ? "video" : // Cloudinary stores audio under `video` resource type
-            "auto";
+            step.type === "audio" ? "video" : "auto"; // audio also goes under video in Cloudinary
 
+          // ⬆️ upload to Cloudinary, get permanent URL
           fileUrl = await uploadToCloudinary(file.path, resourceType);
 
-          // cleanup local file
+          // cleanup temporary local file
           fs.unlinkSync(file.path);
         }
 
         return {
           type: step.type,
           content: step.type === "text" ? step.content : null,
-          fileUrl, // ✅ now Cloudinary permanent URL
+          fileUrl,
         };
       })
     );
