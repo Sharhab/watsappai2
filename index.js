@@ -91,15 +91,16 @@ const upload = multer({ storage }).any();
 //   }
 // });
 // Get intro
-app.post("/api/intro", introUpload , async (req, res) => {
+
+app.post("/api/intro", introUpload, async (req, res) => {
   try {
     console.log("📝 Incoming /api/intro request");
 
-    // Debug raw body
+    // Debug raw body + files
     console.log("📦 req.body:", req.body);
     console.log("📂 req.files:", req.files);
 
-    // Validate sequence field
+    // Validate sequence
     if (!req.body.sequence) {
       return res.status(400).json({ success: false, error: "Missing sequence field" });
     }
@@ -120,12 +121,11 @@ app.post("/api/intro", introUpload , async (req, res) => {
     for (let i = 0; i < rawSeq.length; i++) {
       const step = rawSeq[i];
       if (!["text", "audio", "video"].includes(step.type)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: `Invalid step type at index ${i}: ${step.type}` 
+        return res.status(400).json({
+          success: false,
+          error: `Invalid step type at index ${i}: ${step.type}`,
         });
       }
-
       if (step.type === "text" && !step.content) {
         return res.status(400).json({
           success: false,
@@ -144,13 +144,22 @@ app.post("/api/intro", introUpload , async (req, res) => {
         let fileUrl = null;
         if (file) {
           console.log(`📤 Uploading step${i}_file ->`, file.originalname);
-          fileUrl = await uploadToCloudinary(file.path, step.type);
+
+          // Pass buffer OR path depending on storage type
+          fileUrl = await uploadToCloudinary(
+            file.buffer || file.path,
+            step.type
+          );
+
           console.log(`✅ Cloudinary URL for step${i}:`, fileUrl);
         }
 
         return {
           type: step.type,
-          content: step.type === "text" ? req.body[`step${i}_content`] || step.content : null,
+          content:
+            step.type === "text"
+              ? req.body[`step${i}_content`] || step.content
+              : null,
           fileUrl,
         };
       })
@@ -162,7 +171,11 @@ app.post("/api/intro", introUpload , async (req, res) => {
     res.json({ success: true, intro });
   } catch (err) {
     console.error("❌ Intro upload failed:", err);
-    res.status(500).json({ success: false, error: err.message, stack: err.stack });
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      stack: err.stack,
+    });
   }
 });
 
