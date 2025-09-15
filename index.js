@@ -293,6 +293,21 @@ export function loadGoogleCredentials() {
 }
 
 //---validattion for url ------
+function safeRead(filePath) {
+  try {
+    console.log("🔎 Attempting to read:", filePath);
+    if (!fs.existsSync(filePath)) {
+      console.error("❌ File does not exist:", filePath);
+      return null;
+    }
+    return fs.readFileSync(filePath);
+  } catch (err) {
+    console.error("❌ File read failed:", filePath);
+    console.error(err.stack); // full trace
+    throw err;
+  }
+}
+
 // Accept only proper media extensions Twilio supports
 const ALLOWED_EXT = new Set([".mp3", ".mp4", ".wav", ".ogg", ".amr"]);
 
@@ -489,62 +504,7 @@ async function transcribeAudio(mediaUrl) {
     }
   }
 }
-////-------webhook--------------
-////app.post('/webhook', async (req, res) => {
-// //  // const from = req.body?.From;//  // const numMedia = Number.parseInt(req.body?.NumMedia || '0', 10) || 0;//  // let incomingMsg = req.body?.Body || '';
-  /// const adHeadline = req.body?.ReferralHeadline || null;
-// //  // console.log('------------------------------------------------------------');//  // console.log('📩 Incoming from:', from);
-  /// console.log('📦 NumMedia:', numMedia, 'Body:', incomingMsg);
-// 
-  //f voice note
-// //  // if (numMedia > 0 && (req.body?.MediaContentType0 || '').includes('audio')) {//    // const mediaUrl = req.body.MediaUrl0;//    // const transcript = await transcribeAudio(mediaUrl);//    // if (transcript) {//      // incomingMsg = transcript;//    // } else {//      // console.warn('⚠️ Transcription returned null/empty; keeping text Body if any.');//    // }
-  /// }
-// //  Load / create session//  // let session = await CustomerSession.findOne({ phoneNumber: from });
-  /// if (!session) {
-// //    // session = new CustomerSession({//      // phoneNumber: from,//      // adSource: { headline: adHeadline },//      // hasReceivedWelcome: false,//      // conversationHistory: [],//      // currentSteps: [],//      // messageHistory: [],//      // lastInteractedAt: new Date(),//    // });//    // console.log('🆕 New session created for', from);//  // }
-  /// if (!Array.isArray(session.conversationHistory)) session.conversationHistory = [];
-// //  // session.conversationHistory.push({//    // sender: 'user',//    // messageType: numMedia > 0 ? 'audio' : 'text',//    // content: incomingMsg,//    // timestamp: new Date(),
-  /// });
-// //  // session.lastInteractedAt = new Date();//  // await session.save();//  Match QA
-  /// const matchedQA = incomingMsg ? await findBestMatch(incomingMsg) : null;
-// 
-  /// console.log('🎯 Matched QA:', matchedQA ? matchedQA.question : '❌ none');
-// //  // try {//    First-time: send intro sequence once
-//st-time: send intro sequence once//// if (!session.hasReceivedWelcome) {
-  /// console.log('👋 Sending intro sequence...');
-// 
-  //etch from DB
-// //  // const introDoc = await Intro.findOne();
-  /// const introSequence = introDoc?.sequence || [];
-// //  // for (const step of introSequence) {
-  // // if (!step) continue;
-// //    // if (step.type === 'text'  && step.content) {//      // await client.messages.create({//        // from: 'whatsapp:+14155238886',//        // to: from,//        // body: step.content 
-  //   // });
-// //    // } else if ((step.type === 'video' || step.type === 'audio')  && step.fileUrl){//      // if (!step.content) continue;//      // await client.messages.create({//        // from: 'whatsapp:+14155238886',//        // to: from,//        //  mediaUrl: [step.fileUrl],//      // });//    // }
-  /// }
-// //  // session.hasReceivedWelcome = true;
-  /// await session.save();
-// 
-  /// console.log('✅ Intro sequence sent from DB and session updated.');
-// //    // } else if (matchedQA) {//      ✅ Always answer, but for now we only send TEXT//      // if (matchedQA.answerText) {//        // console.log('💬 Sending text answer:', matchedQA.answerText);//        // await client.messages.create({//          // from: 'whatsapp:+14155238886',//          // to: from,//          // body: matchedQA.answerText,//        // });//      // } else {//        // console.log('⚠️ Matched QA has no text answer. Sending fallback.');//        // await client.messages.create({//          // from: 'whatsapp:+14155238886',//          // to: from,//          // body: 'Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.',//        // });
-  //   // }
-// 
-  //   ⏸️ Commented out audio/video answers (to be re-enabled later when URLs are real)
-// //      // if (matchedQA.answerAudio) {//        // console.log('📤 Sending audio answer:', matchedQA.answerAudio);//        // await client.messages.create({//          // from: 'whatsapp:+14155238886',//          // to: from,//          // mediaUrl: [matchedQA.answerAudio],
-  //     // });
-// //      // } else if (matchedQA.answerVideo) {//        // console.log('📤 Sending video answer:', matchedQA.answerVideo);//        // await client.messages.create({//          // from: 'whatsapp:+14155238886',//          // to: from,//          // mediaUrl: [matchedQA.answerVideo],//        // });
-  //   // }
-    // //    // } else {//      // console.log('🛟 No match; sending fallback.');//      // await client.messages.create({//        // from: 'whatsapp:+14155238886',//        // to: from,//        // body://          // 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.',//      // });
-    // }
 
-    
-
-  //} catch (error) {
-    //console.error('❌ Twilio send error:', error?.message || error);
-  //}
-
-  //res.status(200).end();
-//});
 app.post('/webhook', async (req, res) => {
   const from = req.body?.From;
   const numMedia = Number.parseInt(req.body?.NumMedia || '0', 10) || 0;
@@ -729,6 +689,15 @@ app.post('/webhook', async (req, res) => {
   }
 
   res.status(200).end();
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("💥 Uncaught Exception:", err.message);
+  console.error(err.stack);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("💥 Unhandled Rejection:", reason);
 });
 
 
