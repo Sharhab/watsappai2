@@ -39,16 +39,8 @@ app.use(cors({
   credentials: true
 }));
 // ✅ Serve uploaded audio files
-app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith(".mp4")) {
-      res.setHeader("Content-Type", "video/mp4");
-    }
-    if (filePath.endsWith(".mp3") || filePath.endsWith(".ogg")) {
-      res.setHeader("Content-Type", "audio/mpeg");
-    }
-  }
-}));
+const introUpload = multer({ storage: multer.memoryStorage() }).any();
+
 const qasstorage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, 'uploads/');
@@ -58,10 +50,8 @@ const qasstorage = multer.diskStorage({
     cb(null, Date.now() + path.extname(file.originalname));
   },
 });
-app.use((req, res, next)=> {
-  res.setHeader("ngrok-skip-browser-warning", "true");
-  next();
-});
+
+
 const uploadQas = multer({storage: qasstorage})
   const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -101,43 +91,78 @@ const upload = multer({ storage }).any();
 //   }
 // });
 // Get intro
-
-app.post("/api/intro", upload, async (req, res) => {
+app.post("/api/intro", introUpload , async (req, res) => {
   try {
-    const rawSeq = JSON.parse(req.body.sequence);
+    console.log("📝 Incoming /api/intro request");
 
+    // Debug raw body
+    console.log("📦 req.body:", req.body);
+    console.log("📂 req.files:", req.files);
+
+    // Validate sequence field
+    if (!req.body.sequence) {
+      return res.status(400).json({ success: false, error: "Missing sequence field" });
+    }
+
+    let rawSeq;
+    try {
+      rawSeq = JSON.parse(req.body.sequence);
+    } catch (err) {
+      console.error("❌ Invalid sequence JSON:", req.body.sequence);
+      return res.status(400).json({ success: false, error: "Invalid sequence JSON" });
+    }
+
+    if (!Array.isArray(rawSeq)) {
+      return res.status(400).json({ success: false, error: "Sequence must be an array" });
+    }
+
+    // Validate each step
+    for (let i = 0; i < rawSeq.length; i++) {
+      const step = rawSeq[i];
+      if (!["text", "audio", "video"].includes(step.type)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: `Invalid step type at index ${i}: ${step.type}` 
+        });
+      }
+
+      if (step.type === "text" && !step.content) {
+        return res.status(400).json({
+          success: false,
+          error: `Text step at index ${i} must include content`,
+        });
+      }
+    }
+
+    console.log("✅ Sequence validated:", rawSeq);
+
+    // Upload files to Cloudinary
     const sequence = await Promise.all(
       rawSeq.map(async (step, i) => {
-        const file = req.files.find(f => f.fieldname === `step${i}_file`);
+        const file = req.files.find((f) => f.fieldname === `step${i}_file`);
 
         let fileUrl = null;
         if (file) {
-          const resourceType =
-            step.type === "video" ? "video" :
-            step.type === "audio" ? "video" : "auto"; // audio also goes under video in Cloudinary
-
-          // ⬆️ upload to Cloudinary, get permanent URL
-          fileUrl = await uploadToCloudinary(file.path, resourceType);
-
-          // cleanup temporary local file
-          fs.unlinkSync(file.path);
+          console.log(`📤 Uploading step${i}_file ->`, file.originalname);
+          fileUrl = await uploadToCloudinary(file.path, step.type);
+          console.log(`✅ Cloudinary URL for step${i}:`, fileUrl);
         }
 
         return {
           type: step.type,
-          content: step.type === "text" ? step.content : null,
+          content: step.type === "text" ? req.body[`step${i}_content`] || step.content : null,
           fileUrl,
         };
       })
     );
 
-    const introDoc = new Intro({ sequence });
-    await introDoc.save();
+    const intro = new Intro({ sequence });
+    await intro.save();
 
-    res.json({ success: true, intro: introDoc });
+    res.json({ success: true, intro });
   } catch (err) {
     console.error("❌ Intro upload failed:", err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message, stack: err.stack });
   }
 });
 
