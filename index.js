@@ -34,11 +34,23 @@ app.use(bodyParser.json());
 //const { loadGoogleCredentials } = require('./loadGoogleCredentials')
 
 // ✅ Enable CORS so React frontend (5173) can call backend (3000)
+const allowedOrigins = [
+  "http://localhost:5173",          // local dev
+  "https://watsappai.onrender.com"  // deployed frontend
+];
+
 app.use(cors({
-  origin: "https://watsappai.onrender.com/", // allow only React app
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS: " + origin));
+    }
+  },
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));
+
 // ✅ Serve uploaded audio files
 const introUpload = multer({ storage: multer.memoryStorage() }).any();
 
