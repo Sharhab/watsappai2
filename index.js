@@ -22,9 +22,10 @@ import uploadToCloudinary from "./utils/uploadToCloudinary.js";
 //import { encodeForWhatsApp } from "./utils/encodeMedia.js";
 import { GoogleAuth } from "google-auth-library";
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+//const __dirname = path.dirname(__filename);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
-
+const qasStorage = multer.memoryStorage(); // keep in memory, no disk
+const uploadQas = multer({ storage: qasStorage });
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -41,28 +42,6 @@ app.use(cors({
 // ✅ Serve uploaded audio files
 const introUpload = multer({ storage: multer.memoryStorage() }).any();
 
-const qasstorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  },
-});
-
-
-const uploadQas = multer({storage: qasstorage})
-  const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/"); // make sure uploads/ exists
-  },
-  filename: (req, file, cb) => {
-    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, unique + path.extname(file.originalname));
-  },
-});
-const upload = multer({ storage }).any();
 
 // ---------------------- Intro API ----------------------
 // Save or update int//ro
@@ -181,43 +160,41 @@ app.get("/api/intro", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-//// app.post("/api/intro", upload, async (req, res) =>// {
-//   try// {
-    // const rawSeq = JSON.parse(req.body.sequence); // comes from fronte//nd
-    // const sequence = rawSeq.map((step, i) =>// {
-      // const file = req.files.find((f) => f.fieldname === `step${i}_file`//);
-  //  const baseUrl = `${req.protocol}://${req.get("host")}//`;
-      // return// {
-        // type: step.typ//e,
-        // content: step.type === "text" ? req.body[`step${i}_content`] || step.content : nul//l,
-        // fileUrl: file ? `/uploads/${file.filename}` : nul//l,
-      // };
-//    // });
-//// 
-    // const intro = new Intro({ sequence });
-//    // await intro.save();
-//// 
-    // res.json(intro//);
-  // } catch (err)// {
-    // console.error("❌ Error saving intro:", err//);
-    // res.status(400).json({ error: err.message });
-//  //// }
-// });
-//Get int//ro
-// app.get('/api/intro', async (req, res) =>// {
-  // try// {
-    // const intro = await Intro.findOne(//);
-    // res.json(intro//);
-  // } catch (error)// {
-    // res.status(500).json({ error: error.message });
-//  // }
-// });
 
-// Delete intro sequence + uploaded files
 
-// Update intro (replace any of the files/text)
 
-   // GET all QAs
+
+app.post("/api/qas", uploadQas.single("answerAudio"), async (req, res) => {
+  try {
+    const { question, answerText } = req.body;
+
+    if (!question) {
+      return res.status(400).json({ error: "Question is required" });
+    }
+
+    let audioUrl = null;
+
+    if (req.file) {
+      console.log(`📤 Uploading QA audio -> ${req.file.originalname}`);
+      audioUrl = await uploadToCloudinary(req.file.buffer, "auto"); // auto = audio/video/image
+      console.log("✅ Cloudinary URL for QA audio:", audioUrl);
+    }
+
+    const newQA = new QA({
+      question,
+      answerText: answerText || null,
+      answerAudio: audioUrl, // null if no file uploaded
+    });
+
+    await newQA.save();
+    res.json(newQA);
+  } catch (err) {
+    console.error("❌ QA upload failed:", err);
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
+// GET all QAs
 app.get("/api/qas", async (req, res) => {
   try {
     const qas = await QA.find();
@@ -238,44 +215,33 @@ app.get('/api/qas/:id', async (req, res) => {
   }
 });
 // Create QA
-app.post('/api/qas', uploadQas.single('answerAudio'), async (req, res) => {
-  try {
-    const newQA = new QA({
-      question: req.body.question,
-      answerText: req.body.answerText,
-      answerAudio: req.file ? `/uploads/${req.file.filename}` : null,
-    });
-    await newQA.save();
-    res.json(newQA);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-
-});
 // Update QA
-app.put('/api/qas/:id', uploadQas.single('answerAudio'), async (req, res) => {
 
+app.put("/api/qas/:id", uploadQas.single("answerAudio"), async (req, res) => {
   try {
-    const update = {
-      question: req.body.question,
-      answerText: req.body.answerText,
-    };
-    if (req.file) {
-      update.answerAudio = `/uploads/${req.file.filename}`;
+    const { question, answerText } = req.body;
 
+    const qa = await QA.findById(req.params.id);
+    if (!qa) return res.status(404).json({ error: "QA not found" });
+
+    if (question) qa.question = question;
+    if (answerText !== undefined) qa.answerText = answerText;
+
+    // if a new audio file is uploaded → replace URL
+    if (req.file) {
+      console.log(`📤 Re-uploading QA audio -> ${req.file.originalname}`);
+      const audioUrl = await uploadToCloudinary(req.file.buffer, "auto");
+      qa.answerAudio = audioUrl;
     }
 
-
-
-    const qa = await QA.findByIdAndUpdate(req.params.id, update, { new: true });
-    if (!qa) return res.status(404).json({ error: 'QA not found' });
-
+    await qa.save();
     res.json(qa);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("❌ QA update failed:", err);
+    res.status(500).json({ error: err.message, stack: err.stack });
   }
-
 });
+
 // Delete QA
 app.delete('/api/qas/:id', async (req, res) => {
   try {
