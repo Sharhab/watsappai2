@@ -597,7 +597,7 @@ app.post('/webhook', async (req, res) => {
         if (step.type === 'text') {
           console.log(`➡️ Sending TEXT: ${step.content}`);
           await client.messages.create({
-            from: 'whatsapp:+14155238886',
+            from: 'whatsapp:+15558784207',
             to: from,
             body: step.content || '',
           });
@@ -623,7 +623,7 @@ app.post('/webhook', async (req, res) => {
           }
 
           await client.messages.create({
-            from: 'whatsapp:+14155238886',
+            from: 'whatsapp:+15558784207',
             to: from,
             mediaUrl: [safeUrl],
           });
@@ -641,14 +641,14 @@ app.post('/webhook', async (req, res) => {
       if (matchedQA.answerText) {
         console.log('💬 Sending text answer:', matchedQA.answerText);
         await client.messages.create({
-          from: 'whatsapp:+14155238886',
+          from: 'whatsapp:+15558784207',
           to: from,
           body: matchedQA.answerText,
         });
       } else {
         console.log('⚠️ Matched QA has no text answer. Sending fallback.');
         await client.messages.create({
-          from: 'whatsapp:+14155238886',
+          from: 'whatsapp:+15558784207',
           to: from,
           body: 'Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.',
         });
@@ -665,7 +665,7 @@ app.post('/webhook', async (req, res) => {
         if (/\.(mp3|wav|ogg|amr)(\?.*)?$/i.test(safeUrl)) {
           try {
             await client.messages.create({
-              from: 'whatsapp:+14155238886',
+              from: 'whatsapp:+15558784207',
               to: from,
               mediaUrl: [safeUrl],
             });
@@ -686,7 +686,7 @@ app.post('/webhook', async (req, res) => {
         if (/\.(mp4)(\?.*)?$/i.test(safeUrl)) {
           try {
             await client.messages.create({
-              from: 'whatsapp:+14155238886',
+              from: 'whatsapp:+15558784207',
               to: from,
               mediaUrl: [safeUrl],
             });
@@ -700,7 +700,7 @@ app.post('/webhook', async (req, res) => {
     } else {
       console.log('🛟 No match; sending fallback.');
       await client.messages.create({
-        from: 'whatsapp:+14155238886',
+        from: 'whatsapp:+15558784207',
         to: from,
         body: 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.',
       });
