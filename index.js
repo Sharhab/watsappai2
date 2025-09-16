@@ -564,37 +564,37 @@ app.post('/webhook', async (req, res) => {
             to: from,
             body: step.content || '',
           });
-} else if (step.type === 'video' || step.type === 'audio') {
-  if (!step.fileUrl) {
-    console.warn(`⚠️ Missing fileUrl for step type=${step.type}`);
-    continue;
-  }
+        } else if (step.type === 'video' || step.type === 'audio') {
+          if (!step.fileUrl) {
+            console.warn(`⚠️ Missing fileUrl for step type=${step.type}`);
+            continue;
+          }
 
-  let safeUrl = toAbsoluteUrl(step.fileUrl);
+          let safeUrl = toAbsoluteUrl(step.fileUrl);
 
-  // Log the URL we will send
-  console.log(`➡️ ${step.type.toUpperCase()} URL (raw): ${step.fileUrl}`);
-  console.log(`➡️ ${step.type.toUpperCase()} URL (final): ${safeUrl}`);
+          console.log(`➡️ ${step.type.toUpperCase()} URL (raw): ${step.fileUrl}`);
+          console.log(`➡️ ${step.type.toUpperCase()} URL (final): ${safeUrl}`);
 
-  // Validate extension
-  if (!hasValidExt(safeUrl)) {
-    console.warn(`⚠️ Skipping media with bad extension: ${safeUrl}`);
-    continue;
-  }
+          if (!hasValidExt(safeUrl)) {
+            console.warn(`⚠️ Skipping media with bad extension: ${safeUrl}`);
+            continue;
+          }
 
-  // Verify the URL is reachable before sending
-  if (!(await isReachable(safeUrl))) {
-    console.warn(`⚠️ Skipping unreachable media URL: ${safeUrl}`);
-    continue;
-  }
+          if (!(await isReachable(safeUrl))) {
+            console.warn(`⚠️ Skipping unreachable media URL: ${safeUrl}`);
+            continue;
+          }
 
-  await client.messages.create({
-    from: 'whatsapp:+14155238886',
-    to: from,
-    mediaUrl: [safeUrl],
-  });
-}
+          await client.messages.create({
+            from: 'whatsapp:+14155238886',
+            to: from,
+            mediaUrl: [safeUrl],
+          });
         }
+
+        // 🕑 Add slight delay so WhatsApp preserves order
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+      }
 
       session.hasReceivedWelcome = true;
       await session.save();
@@ -619,12 +619,10 @@ app.post('/webhook', async (req, res) => {
 
       if (matchedQA.answerAudio) {
         let safeUrl = matchedQA.answerAudio;
-
         if (!safeUrl.startsWith('http')) {
           const base = process.env.PUBLIC_BASE_URL || '';
           safeUrl = `${base.replace(/\/$/, '')}/${safeUrl.replace(/^\//, '')}`;
         }
-
         console.log('📤 Audio answer (final URL):', safeUrl);
 
         if (/\.(mp3|wav|ogg|amr)(\?.*)?$/i.test(safeUrl)) {
@@ -642,12 +640,10 @@ app.post('/webhook', async (req, res) => {
         }
       } else if (matchedQA.answerVideo) {
         let safeUrl = matchedQA.answerVideo;
-
         if (!safeUrl.startsWith('http')) {
           const base = process.env.PUBLIC_BASE_URL || '';
           safeUrl = `${base.replace(/\/$/, '')}/${safeUrl.replace(/^\//, '')}`;
         }
-
         console.log('📤 Video answer (final URL):', safeUrl);
 
         if (/\.(mp4)(\?.*)?$/i.test(safeUrl)) {
@@ -671,13 +667,12 @@ app.post('/webhook', async (req, res) => {
         to: from,
         body: 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.',
       });
-
     }
-  } catch (error) {
-    console.error('❌ Twilio send error:', error?.message || error);
+  } catch (err) {
+    console.error('❌ Webhook failed:', err);
   }
 
-  res.status(200).end();
+  res.sendStatus(200);
 });
 
 process.on("uncaughtException", (err) => {
