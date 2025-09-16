@@ -161,7 +161,7 @@ app.get("/api/intro", async (req, res) => {
   }
 });
 
-app.post("/api/qas", qaUpload.single("answerAudio"), async (req, res) => {
+app.post("/api/qas",  uploadQas.single("answerAudio"), async (req, res) => {
   try {
     let audioUrl = null;
 
