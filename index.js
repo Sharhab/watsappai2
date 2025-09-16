@@ -35,7 +35,7 @@ app.use(bodyParser.json());
 
 // ✅ Enable CORS so React frontend (5173) can call backend (3000)
 app.use(cors({
-  origin: "http://localhost:5173", // allow only React app
+  origin: "https://watsappai.onrender.com/", // allow only React app
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));
@@ -495,14 +495,34 @@ async function transcribeAudio(mediaUrl) {
 }
 
 app.post('/webhook', async (req, res) => {
-  const from = req.body?.From;
   const numMedia = Number.parseInt(req.body?.NumMedia || '0', 10) || 0;
   let incomingMsg = req.body?.Body || '';
+
+  // 🔎 Capture referral metadata from ads
+  const from = req.body?.From;
   const adHeadline = req.body?.ReferralHeadline || null;
+  const adSource = req.body?.ReferralSource || null;
+  const adType = req.body?.ReferralType || null;
+
+  console.log('📩 Incoming from:', from);
+  console.log('📣 Referral Info:', { adHeadline, adSource, adType });
+
+  // 🚫 Ignore if no ad referral (organic message)
+  if (!adHeadline && !adSource && !adType) {
+    console.log('⚠️ Ignoring organic conversation (not from ad)');
+    return res.sendStatus(200); // Exit early, don’t reply
+  }
+  const ctwaClid = req.body?.ReferralCtwaClid || null; // Meta click ID
 
   console.log('------------------------------------------------------------');
   console.log('📩 Incoming from:', from);
   console.log('📦 NumMedia:', numMedia, 'Body:', incomingMsg);
+  console.log('📣 Referral ->', {
+    headline: adHeadline,
+    source: adSource,
+    type: adType,
+    ctwa_clid: ctwaClid,
+  });
 
   // If voice note
   if (numMedia > 0 && (req.body?.MediaContentType0 || '').includes('audio')) {
@@ -520,7 +540,12 @@ app.post('/webhook', async (req, res) => {
   if (!session) {
     session = new CustomerSession({
       phoneNumber: from,
-      adSource: { headline: adHeadline },
+      adSource: {
+        headline: adHeadline,
+        source: adSource,
+        type: adType,
+        ctwa_clid: ctwaClid,
+      },
       hasReceivedWelcome: false,
       conversationHistory: [],
       currentSteps: [],
