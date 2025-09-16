@@ -161,36 +161,27 @@ app.get("/api/intro", async (req, res) => {
   }
 });
 
-
-
-
-app.post("/api/qas", uploadQas.single("answerAudio"), async (req, res) => {
+app.post("/api/qas", qaUpload.single("answerAudio"), async (req, res) => {
   try {
-    const { question, answerText } = req.body;
-
-    if (!question) {
-      return res.status(400).json({ error: "Question is required" });
-    }
-
     let audioUrl = null;
 
     if (req.file) {
-      console.log(`📤 Uploading QA audio -> ${req.file.originalname}`);
-      audioUrl = await uploadToCloudinary(req.file.buffer, "auto"); // auto = audio/video/image
-      console.log("✅ Cloudinary URL for QA audio:", audioUrl);
+      console.log("📤 Uploading QA audio:", req.file.originalname);
+      audioUrl = await uploadToCloudinary(req.file.buffer, "audio");
+      console.log("✅ QA audio Cloudinary URL:", audioUrl);
     }
 
     const newQA = new QA({
-      question,
-      answerText: answerText || null,
-      answerAudio: audioUrl, // null if no file uploaded
+      question: req.body.question,
+      answerText: req.body.answerText,
+      answerAudio: audioUrl,
     });
 
     await newQA.save();
     res.json(newQA);
   } catch (err) {
-    console.error("❌ QA upload failed:", err);
-    res.status(500).json({ error: err.message, stack: err.stack });
+    console.error("❌ QA creation failed:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
