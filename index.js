@@ -2,6 +2,8 @@
 import dotenv from "dotenv";
 dotenv.config();
 //import cloudinary from './configs/cloudinary.js'
+import Tesseract from "tesseract.js";
+import fetch from "node-fetch";
 import { fileURLToPath } from "url";
 import bodyParser from "body-parser";
 import multer from "multer";
@@ -19,18 +21,24 @@ import speech from "@google-cloud/speech"; // Google Speech SDK
 import QA from "./models/QA.js";
 import CustomerSession from "./models/CustomerSession.js";
 import uploadToCloudinary from "./utils/uploadToCloudinary.js";
+import extractReceiptInfo from "./utils/extractReceiptInfo.js";
+import Order from "./models/Order.js";
+import Conversation from "./models/Conversation.js";
+
 //import { encodeForWhatsApp } from "./utils/encodeMedia.js";
 import { GoogleAuth } from "google-auth-library";
 const __filename = fileURLToPath(import.meta.url);
 //const __dirname = path.dirname(__filename);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
 const qasStorage = multer.memoryStorage(); // keep in memory, no disk
+const reCieptstorage = multer.memoryStorage(); // keep in memory, no disk
 const uploadQas = multer({ storage: qasStorage });
 
 const app = express();
 const port = process.env.PORT || 3000;
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+
 //const { loadGoogleCredentials } = require('./loadGoogleCredentials')
 
 // ✅ Enable CORS so React frontend (5173) can call backend (3000)
@@ -53,7 +61,26 @@ app.use(cors({
 
 // ✅ Serve uploaded audio files
 const introUpload = multer({ storage: multer.memoryStorage() }).any();
+const upload = multer({ storage:  reCieptstorage});
 
+
+app.get("/api/orders", async (req, res) => {
+
+  try {
+    const { phone } = req.query;
+    if (!phone) {
+      return res.status(400).json({ error: "Phone is required" });
+    }
+    // Find orders for that phone
+    const orders = await Order.find({ phone }).sort({ createdAt: -1 });
+
+    res.json({ orders });
+  } catch (err) {
+    console.error("❌ Error fetching orders:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+
+});
 
 // ---------------------- Intro API ----------------------
 // Save or update int//ro
@@ -256,6 +283,79 @@ app.delete('/api/qas/:id', async (req, res) => {
   }
 
 });
+
+// ✅ Get all conversations (summary list)
+app.get("/api/conversations", async (req, res) => {
+  try {
+    const conversations = await Conversation.find()
+      .sort({ updatedAt: -1 })
+      .select("phone lastMessage updatedAt"); // keep lightweight for list
+
+    res.json(conversations);
+  } catch (err) {
+    console.error("❌ Error fetching conversations:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ✅ Get single conversation with full history
+app.get("/api/conversations/:phone", async (req, res) => {
+  try {
+    const { phone } = req.params;
+
+    const conversation = await Conversation.findOne({ phone });
+
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    // Send full details, including chat history
+    res.json(conversation);
+  } catch (err) {
+    console.error("❌ Error fetching conversation:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Get unmatched questions
+app.get("/api/failed-matches", async (req, res) => {
+  const failed = await Conversation.aggregate([
+    { $unwind: "$messages" },
+    { $match: { "messages.sender": "customer", "messages.matchedQA": { $exists: false } } },
+    { $group: { _id: "$messages.content", count: { $sum: 1 } } },
+    { $sort: { count: -1 } }
+  ]);
+  res.json({ failed });
+});
+
+
+//---orders ------------
+
+app.post("/api/orders/:id/receipt", upload.single("receipt"), async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    // Upload file to Cloudinary
+    const url = await uploadToCloudinary(req.file.buffer, "image");
+
+    // Extract info from receipt
+    const ocrData = await extractReceiptInfo(url);
+
+    // Save to DB
+    order.receiptUrl = url;
+    order.receiptExtract = ocrData;
+    order.paymentStatus = "paid"; // mark paid once receipt validated
+    await order.save();
+
+    res.json({ success: true, order });
+  } catch (err) {
+    console.error("Receipt upload error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- Env checks ------------------------------------------------------------
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -518,6 +618,39 @@ app.post('/webhook', async (req, res) => {
 
   console.log('📩 Incoming from:', from);
   console.log('📣 Referral Info:', { adHeadline, adSource, adType });
+
+    try {
+    const { From, NumMedia, MediaUrl0 } = req.body;
+
+    if (NumMedia && MediaUrl0) {
+      console.log("📥 New receipt uploaded:", MediaUrl0);
+
+      // 1. Download media from Twilio
+      const response = await fetch(MediaUrl0);
+      const buffer = await response.arrayBuffer();
+
+      // 2. Run OCR with Tesseract.js
+      const { data: { text } } = await Tesseract.recognize(Buffer.from(buffer), "eng");
+      console.log("🔎 OCR result:", text);
+
+      // 3. Extract structured info
+      const receiptExtract = extractReceiptInfo(text);
+
+      // 4. Save order
+      await Order.create({
+        phone: From.replace("whatsapp:", ""), // e.g. "2347065602624"
+        receiptUrl: MediaUrl0,
+        receiptExtract,
+      });
+
+      console.log("✅ Order stored for", From);
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("❌ Webhook error:", err);
+    res.sendStatus(500);
+  }
 
   // 🚫 Ignore if no ad referral (organic message)
   if (!adHeadline && !adSource && !adType) {
