@@ -82,6 +82,28 @@ app.get("/api/orders", async (req, res) => {
 
 });
 
+
+// ✅ Delivery status callback from Twilio
+app.post("/twilio-status", express.urlencoded({ extended: false }), (req, res) => {
+  try {
+    const { MessageSid, MessageStatus, To, From, ErrorCode, ErrorMessage } = req.body;
+
+    console.log("📡 Twilio Status Update:");
+    console.log(`   SID: ${MessageSid}`);
+    console.log(`   To: ${To}`);
+    console.log(`   From: ${From}`);
+    console.log(`   Status: ${MessageStatus}`);
+    if (ErrorCode) {
+      console.log(`   ❌ Error Code: ${ErrorCode} - ${ErrorMessage || "Unknown error"}`);
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("❌ Failed to handle /twilio-status callback:", err);
+    if (!res.headersSent) res.sendStatus(500);
+  }
+});
+
 // ---------------------- Intro API ----------------------
 // Save or update int//ro
 
@@ -141,7 +163,7 @@ app.post("/api/intro", introUpload, async (req, res) => {
           error: `Invalid step type at index ${i}: ${step.type}`,
         });
       }
-      if (step.type === "text" && !step.content) {
+      if (step.type === "text" && !step.content && !req.body[`step${i}_content`]) {
         return res.status(400).json({
           success: false,
           error: `Text step at index ${i} must include content`,
@@ -155,19 +177,23 @@ app.post("/api/intro", introUpload, async (req, res) => {
     const sequence = await Promise.all(
       rawSeq.map(async (step, i) => {
         const file = req.files.find((f) => f.fieldname === `step${i}_file`);
-
         let fileUrl = null;
+
         if (file) {
-          // Decide resource_type based on step.type
-          let resourceType = "auto";
-          if (step.type === "video") resourceType = "video";
-          if (step.type === "audio") resourceType = "video"; // ✅ audio uploads use video type
+          // Force Cloudinary type for Twilio compliance
+          let uploadType = "auto";
+          if (step.type === "video") uploadType = "video";
+          if (step.type === "audio") uploadType = "audio";
 
           console.log(
-            `📤 Uploading step${i}_file -> ${file.originalname} (type=${step.type}, resource_type=${resourceType})`
+            `📤 Uploading step${i}_file -> ${file.originalname} (type=${step.type}, uploadType=${uploadType})`
           );
 
-          fileUrl = await uploadToCloudinary(file.buffer || file.path, step.type);
+          // Always use buffer (multer gives file.buffer if memoryStorage)
+          const buffer = file.buffer ? file.buffer : fs.readFileSync(file.path);
+
+          // Upload with compression
+          fileUrl = await uploadToCloudinary(buffer, uploadType, "intro_steps");
           console.log(`✅ Cloudinary URL for step${i}:`, fileUrl);
         }
 
@@ -179,15 +205,14 @@ app.post("/api/intro", introUpload, async (req, res) => {
       })
     );
 
+    // Save intro doc
     const intro = new Intro({ sequence });
     await intro.save();
 
     res.json({ success: true, intro });
   } catch (err) {
     console.error("❌ Intro upload failed:", err);
-    res
-      .status(500)
-      .json({ success: false, error: err.message, stack: err.stack });
+    res.status(500).json({ success: false, error: err.message, stack: err.stack });
   }
 });
 
@@ -734,7 +759,7 @@ app.post('/webhook', async (req, res) => {
           let msg;
           if (step.type === 'text') {
             botReply = step.content || "";
-            msg = await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botReply });
+            msg = await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botReply,   statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status` });
           } else if (step.type === 'video' || step.type === 'audio') {
             if (!safeUrl) continue;
             msg = await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl] });
@@ -761,7 +786,7 @@ app.post('/webhook', async (req, res) => {
     // ✅ QA Answer Handling
     else if (matchedQA) {
       let botMessage = matchedQA.answerText || "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
-      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botMessage });
+      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botMessage,  statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status` });
 
       if (session.conversationHistory.length > 0) {
         const last = session.conversationHistory[session.conversationHistory.length - 1];
@@ -781,7 +806,7 @@ app.post('/webhook', async (req, res) => {
         }
 
         try {
-          const msg = await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl] });
+          const msg = await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl],   statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`});
           console.log(`📤 Sent QA media: SID=${msg.sid}, Status=${msg.status}`);
 
           session.conversationHistory.push({
