@@ -200,6 +200,35 @@ app.get("/api/intro", async (req, res) => {
   }
 });
 
+app.get("/api/intro/:id", async (req, res) => {
+  try {
+    const intro = await Intro.findOne(req.params.id);
+    res.json(intro);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/intro/:id", async (req, res) => {
+  try {
+    const intro = await Intro.findOne(req.params.id);
+    res.json(intro);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/intro/:id', async (req, res) => {
+  try {
+    const Intro = await intro.findByIdAndDelete(req.params.id);
+    if (!Intro) return res.status(404).json({ error: 'intro not found' });
+    res.json({ message: 'intro deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+
+});
+
 app.post("/api/qas",  uploadQas.single("answerAudio"), async (req, res) => {
   try {
     let audioUrl = null;
@@ -609,36 +638,35 @@ async function transcribeAudio(mediaUrl) {
 app.post('/webhook', async (req, res) => {
   const numMedia = Number.parseInt(req.body?.NumMedia || '0', 10) || 0;
   let incomingMsg = req.body?.Body || '';
-
-  // 🔎 Capture referral metadata from ads
   const from = req.body?.From;
+
+  // 🔎 Capture referral metadata
   const adHeadline = req.body?.ReferralHeadline || null;
   const adSource = req.body?.ReferralSource || null;
   const adType = req.body?.ReferralType || null;
+  const ctwaClid = req.body?.ReferralCtwaClid || null;
 
   console.log('📩 Incoming from:', from);
-  console.log('📣 Referral Info:', { adHeadline, adSource, adType });
+  console.log('📣 Referral Info:', { adHeadline, adSource, adType, ctwaClid });
 
-    try {
-    const { From, NumMedia, MediaUrl0 } = req.body;
-
-    if (NumMedia && MediaUrl0) {
+  try {
+    // ✅ If media (receipt, audio, etc.)
+    if (numMedia && req.body?.MediaUrl0) {
+      const { From, MediaUrl0 } = req.body;
       console.log("📥 New receipt uploaded:", MediaUrl0);
 
-      // 1. Download media from Twilio
+      // 1. Download receipt
       const response = await fetch(MediaUrl0);
       const buffer = await response.arrayBuffer();
 
-      // 2. Run OCR with Tesseract.js
+      // 2. OCR
       const { data: { text } } = await Tesseract.recognize(Buffer.from(buffer), "eng");
       console.log("🔎 OCR result:", text);
 
-      // 3. Extract structured info
+      // 3. Extract + save
       const receiptExtract = extractReceiptInfo(text);
-
-      // 4. Save order
       await Order.create({
-        phone: From.replace("whatsapp:", ""), // e.g. "2347065602624"
+        phone: From.replace("whatsapp:", ""),
         receiptUrl: MediaUrl0,
         receiptExtract,
       });
@@ -646,203 +674,137 @@ app.post('/webhook', async (req, res) => {
       console.log("✅ Order stored for", From);
     }
 
-    res.sendStatus(200);
-  } catch (err) {
-    console.error("❌ Webhook error:", err);
-    res.sendStatus(500);
-  }
-
-  // 🚫 Ignore if no ad referral (organic message)
-  if (!adHeadline && !adSource && !adType) {
-    console.log('⚠️ Ignoring organic conversation (not from ad)');
-    return res.sendStatus(200); // Exit early, don’t reply
-  }
-  const ctwaClid = req.body?.ReferralCtwaClid || null; // Meta click ID
-
-  console.log('------------------------------------------------------------');
-  console.log('📩 Incoming from:', from);
-  console.log('📦 NumMedia:', numMedia, 'Body:', incomingMsg);
-  console.log('📣 Referral ->', {
-    headline: adHeadline,
-    source: adSource,
-    type: adType,
-    ctwa_clid: ctwaClid,
-  });
-
-  // If voice note
-  if (numMedia > 0 && (req.body?.MediaContentType0 || '').includes('audio')) {
-    const mediaUrl = req.body.MediaUrl0;
-    const transcript = await transcribeAudio(mediaUrl);
-    if (transcript) {
-      incomingMsg = transcript;
-    } else {
-      console.warn('⚠️ Transcription returned null/empty; keeping text Body if any.');
+    // ✅ If voice note, transcribe
+    if (numMedia > 0 && (req.body?.MediaContentType0 || '').includes('audio')) {
+      const mediaUrl = req.body.MediaUrl0;
+      const transcript = await transcribeAudio(mediaUrl);
+      incomingMsg = transcript || incomingMsg;
     }
-  }
 
-  // Load / create session
-  let session = await CustomerSession.findOne({ phoneNumber: from });
-  if (!session) {
-    session = new CustomerSession({
-      phoneNumber: from,
-      adSource: {
-        headline: adHeadline,
-        source: adSource,
-        type: adType,
-        ctwa_clid: ctwaClid,
-      },
-      hasReceivedWelcome: false,
-      conversationHistory: [],
-      currentSteps: [],
-      messageHistory: [],
-      lastInteractedAt: new Date(),
+    // ✅ Load or create session
+    let session = await CustomerSession.findOne({ phoneNumber: from });
+    if (!session) {
+      session = new CustomerSession({
+        phoneNumber: from,
+        adSource: { headline: adHeadline, source: adSource, type: adType, ctwa_clid: ctwaClid },
+        hasReceivedWelcome: false,
+        conversationHistory: [],
+        currentSteps: [],
+        messageHistory: [],
+        lastInteractedAt: new Date(),
+      });
+      console.log('🆕 New session created for', from);
+    }
+
+    if (!Array.isArray(session.conversationHistory)) session.conversationHistory = [];
+
+    // Always add user message
+    session.conversationHistory.push({
+      userMessage: incomingMsg,
+      botReply: null, // will be filled in next steps
+      messageType: numMedia > 0 ? "audio" : "text",
+      timestamp: new Date(),
     });
-    console.log('🆕 New session created for', from);
-  }
+    session.lastInteractedAt = new Date();
+    await session.save();
 
-  if (!Array.isArray(session.conversationHistory)) session.conversationHistory = [];
+    // ✅ Try to match QA
+    const matchedQA = incomingMsg ? await findBestMatch(incomingMsg) : null;
+    console.log('🎯 Matched QA:', matchedQA ? matchedQA.question : '❌ none');
 
-  session.conversationHistory.push({
-    sender: 'user',
-    messageType: numMedia > 0 ? 'audio' : 'text',
-    content: incomingMsg,
-    timestamp: new Date(),
-  });
-
-  session.lastInteractedAt = new Date();
-  await session.save();
-
-  // Match QA
-  const matchedQA = incomingMsg ? await findBestMatch(incomingMsg) : null;
-  console.log('🎯 Matched QA:', matchedQA ? matchedQA.question : '❌ none');
-
-  try {
-    // First-time: send intro sequence once
+    // ✅ Send intro sequence first time
     if (!session.hasReceivedWelcome) {
       console.log('👋 Sending intro sequence...');
-
       const introDoc = await Intro.findOne();
       const introSequence = introDoc?.sequence || [];
 
       for (const step of introSequence) {
         if (!step) continue;
+        let botReply = "";
 
         if (step.type === 'text') {
-          console.log(`➡️ Sending TEXT: ${step.content}`);
-          await client.messages.create({
-            from: 'whatsapp:+15558784207',
-            to: from,
-            body: step.content || '',
-          });
+          botReply = step.content || "";
+          await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botReply });
         } else if (step.type === 'video' || step.type === 'audio') {
-          if (!step.fileUrl) {
-            console.warn(`⚠️ Missing fileUrl for step type=${step.type}`);
-            continue;
-          }
-
-          let safeUrl = toAbsoluteUrl(step.fileUrl);
-
-          console.log(`➡️ ${step.type.toUpperCase()} URL (raw): ${step.fileUrl}`);
-          console.log(`➡️ ${step.type.toUpperCase()} URL (final): ${safeUrl}`);
-
-          if (!hasValidExt(safeUrl)) {
-            console.warn(`⚠️ Skipping media with bad extension: ${safeUrl}`);
-            continue;
-          }
-
-          if (!(await isReachable(safeUrl))) {
-            console.warn(`⚠️ Skipping unreachable media URL: ${safeUrl}`);
-            continue;
-          }
-
-          await client.messages.create({
-            from: 'whatsapp:+15558784207',
-            to: from,
-            mediaUrl: [safeUrl],
-          });
+          if (!step.fileUrl) continue;
+          const safeUrl = toAbsoluteUrl(step.fileUrl);
+          await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl] });
+          botReply = `[${step.type.toUpperCase()} sent]`;
         }
 
-        // 🕑 Add slight delay so WhatsApp preserves order
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        // 📝 Log bot reply as separate entry
+        session.conversationHistory.push({
+          userMessage: null,
+          botReply,
+          messageType: step.type,
+          timestamp: new Date(),
+        });
+        await session.save();
+
+        // 🕑 Small delay
+        await new Promise(r => setTimeout(r, 1200));
       }
 
       session.hasReceivedWelcome = true;
       await session.save();
-      console.log('✅ Intro sequence sent from DB and session updated.');
-    } else if (matchedQA) {
-      // ✅ Answer matched QA
-      if (matchedQA.answerText) {
-        console.log('💬 Sending text answer:', matchedQA.answerText);
-        await client.messages.create({
-          from: 'whatsapp:+15558784207',
-          to: from,
-          body: matchedQA.answerText,
-        });
-      } else {
-        console.log('⚠️ Matched QA has no text answer. Sending fallback.');
-        await client.messages.create({
-          from: 'whatsapp:+15558784207',
-          to: from,
-          body: 'Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.',
-        });
-      }
-
-      if (matchedQA.answerAudio) {
-        let safeUrl = matchedQA.answerAudio;
-        if (!safeUrl.startsWith('http')) {
-          const base = process.env.PUBLIC_BASE_URL || '';
-          safeUrl = `${base.replace(/\/$/, '')}/${safeUrl.replace(/^\//, '')}`;
-        }
-        console.log('📤 Audio answer (final URL):', safeUrl);
-
-        if (/\.(mp3|wav|ogg|amr)(\?.*)?$/i.test(safeUrl)) {
-          try {
-            await client.messages.create({
-              from: 'whatsapp:+15558784207',
-              to: from,
-              mediaUrl: [safeUrl],
-            });
-          } catch (err) {
-            console.warn('⚠️ Failed to send audio answer:', err.message);
-          }
-        } else {
-          console.warn('⚠️ Skipping audio answer, invalid extension:', safeUrl);
-        }
-      } else if (matchedQA.answerVideo) {
-        let safeUrl = matchedQA.answerVideo;
-        if (!safeUrl.startsWith('http')) {
-          const base = process.env.PUBLIC_BASE_URL || '';
-          safeUrl = `${base.replace(/\/$/, '')}/${safeUrl.replace(/^\//, '')}`;
-        }
-        console.log('📤 Video answer (final URL):', safeUrl);
-
-        if (/\.(mp4)(\?.*)?$/i.test(safeUrl)) {
-          try {
-            await client.messages.create({
-              from: 'whatsapp:+15558784207',
-              to: from,
-              mediaUrl: [safeUrl],
-            });
-          } catch (err) {
-            console.warn('⚠️ Failed to send video answer:', err.message);
-          }
-        } else {
-          console.warn('⚠️ Skipping video answer, invalid extension:', safeUrl);
-        }
-      }
-    } else {
-      console.log('🛟 No match; sending fallback.');
-      await client.messages.create({
-        from: 'whatsapp:+15558784207',
-        to: from,
-        body: 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.',
-      });
+      console.log('✅ Intro sequence sent and logged.');
     }
+
+    // ✅ If matched QA
+    else if (matchedQA) {
+      let botMessage = matchedQA.answerText || "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
+      console.log('💬 Sending text answer:', botMessage);
+
+      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botMessage });
+
+      // Update last entry with bot reply
+      if (session.conversationHistory.length > 0) {
+        session.conversationHistory[session.conversationHistory.length - 1].botReply = botMessage;
+        await session.save();
+      }
+
+      // ✅ Audio or video answer
+      if (matchedQA.answerAudio || matchedQA.answerVideo) {
+        let safeUrl = matchedQA.answerAudio || matchedQA.answerVideo;
+        if (!safeUrl.startsWith('http')) {
+          const base = process.env.PUBLIC_BASE_URL || '';
+          safeUrl = `${base.replace(/\/$/, '')}/${safeUrl.replace(/^\//, '')}`;
+        }
+
+        try {
+          await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl] });
+
+          session.conversationHistory.push({
+            userMessage: null,
+            botReply: `[Media reply sent: ${matchedQA.answerAudio ? "Audio" : "Video"}]`,
+            messageType: matchedQA.answerAudio ? "audio" : "video",
+            timestamp: new Date(),
+          });
+          await session.save();
+        } catch (err) {
+          console.warn('⚠️ Failed to send media:', err.message);
+        }
+      }
+    }
+
+    // ✅ Fallback if no QA match
+    else {
+      const fallback = 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.';
+      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: fallback });
+
+      if (session.conversationHistory.length > 0) {
+        session.conversationHistory[session.conversationHistory.length - 1].botReply = fallback;
+        await session.save();
+      }
+    }
+
+    // ✅ respond once
+    res.sendStatus(200);
+
   } catch (err) {
     console.error('❌ Webhook failed:', err);
+    if (!res.headersSent) res.sendStatus(500);
   }
-
-  res.sendStatus(200);
 });
 
 process.on("uncaughtException", (err) => {
