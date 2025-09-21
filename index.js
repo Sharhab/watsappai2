@@ -684,39 +684,38 @@ app.post('/webhook', async (req, res) => {
     // ✅ Load or create session
     let session = await CustomerSession.findOne({ phoneNumber: from });
 
-if (!session) {
-  session = new CustomerSession({
-    phoneNumber: from,
-    adSource: {
-      headline: adHeadline || null,
-      source: adSource || null,
-      type: adType || null,
-      ctwa_clid: ctwaClid || null
-    },
-    hasReceivedWelcome: false,
-    conversationHistory: []
-  });
+    if (!session) {
+      session = new CustomerSession({
+        phoneNumber: from,
+        adSource: {
+          headline: adHeadline || null,
+          source: adSource || null,
+          type: adType || null,
+          ctwa_clid: ctwaClid || null
+        },
+        hasReceivedWelcome: false,
+        conversationHistory: []
+      });
 
-  console.log("🆕 New session created for", from);
-}
+      console.log("🆕 New session created for", from);
+    }
 
-// Ensure conversationHistory is always an array
-if (!Array.isArray(session.conversationHistory)) {
-  session.conversationHistory = [];
-}
+    // Ensure conversationHistory is always an array
+    if (!Array.isArray(session.conversationHistory)) {
+      session.conversationHistory = [];
+    }
 
-// Always add the incoming user message
-session.conversationHistory.push({
-  userMessage: incomingMsg,
-  botReply: null, // will be filled later
-  messageType: numMedia > 0 ? "audio" : "text",
-  timestamp: new Date()
-});
+    // Always add the incoming user message
+    session.conversationHistory.push({
+      userMessage: incomingMsg,
+      botReply: null, // will be filled later
+      messageType: numMedia > 0 ? "audio" : "text",
+      timestamp: new Date()
+    });
 
-// Update last interaction time automatically
-session.updatedAt = new Date();
-
-await session.save();
+    // Update last interaction time automatically
+    session.updatedAt = new Date();
+    await session.save();
 
     // ✅ Try to match QA
     const matchedQA = incomingMsg ? await findBestMatch(incomingMsg) : null;
@@ -725,38 +724,59 @@ await session.save();
     // ✅ Send intro sequence first time
     if (!session.hasReceivedWelcome) {
       console.log('👋 Sending intro sequence...');
+
+      // Mark early so retries won’t re-trigger intro
+      session.hasReceivedWelcome = true;
+      await session.save();
+
       const introDoc = await Intro.findOne();
       const introSequence = introDoc?.sequence || [];
+
+      const newHistoryEntries = [];
 
       for (const step of introSequence) {
         if (!step) continue;
         let botReply = "";
 
-        if (step.type === 'text') {
-          botReply = step.content || "";
-          await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botReply });
-        } else if (step.type === 'video' || step.type === 'audio') {
-          if (!step.fileUrl) continue;
-          const safeUrl = toAbsoluteUrl(step.fileUrl);
-          await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl] });
-          botReply = `[${step.type.toUpperCase()} sent]`;
+        try {
+          if (step.type === 'text') {
+            botReply = step.content || "";
+            await client.messages.create({
+              from: 'whatsapp:+15558784207',
+              to: from,
+              body: botReply
+            });
+          } else if (step.type === 'video' || step.type === 'audio') {
+            if (!step.fileUrl) continue;
+            const safeUrl = toAbsoluteUrl(step.fileUrl);
+            await client.messages.create({
+              from: 'whatsapp:+15558784207',
+              to: from,
+              mediaUrl: [safeUrl]
+            });
+            botReply = `[${step.type.toUpperCase()} sent]`;
+          }
+
+          newHistoryEntries.push({
+            userMessage: null,
+            botReply,
+            messageType: step.type,
+            timestamp: new Date()
+          });
+
+          // small delay between messages
+          await new Promise(r => setTimeout(r, 1200));
+        } catch (err) {
+          console.warn(`⚠️ Failed to send intro ${step.type}:`, err.message);
         }
-
-        // 📝 Log bot reply as separate entry
-        session.conversationHistory.push({
-          userMessage: null,
-          botReply,
-          messageType: step.type,
-          timestamp: new Date(),
-        });
-        await session.save();
-
-        // 🕑 Small delay
-        await new Promise(r => setTimeout(r, 1200));
       }
 
-      session.hasReceivedWelcome = true;
-      await session.save();
+      // Save all intro replies in one go
+      if (newHistoryEntries.length > 0) {
+        session.conversationHistory.push(...newHistoryEntries);
+        await session.save();
+      }
+
       console.log('✅ Intro sequence sent and logged.');
     }
 
@@ -765,7 +785,11 @@ await session.save();
       let botMessage = matchedQA.answerText || "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
       console.log('💬 Sending text answer:', botMessage);
 
-      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botMessage });
+      await client.messages.create({
+        from: 'whatsapp:+15558784207',
+        to: from,
+        body: botMessage
+      });
 
       // Update last entry with bot reply
       if (session.conversationHistory.length > 0) {
@@ -782,13 +806,17 @@ await session.save();
         }
 
         try {
-          await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl] });
+          await client.messages.create({
+            from: 'whatsapp:+15558784207',
+            to: from,
+            mediaUrl: [safeUrl]
+          });
 
           session.conversationHistory.push({
             userMessage: null,
             botReply: `[Media reply sent: ${matchedQA.answerAudio ? "Audio" : "Video"}]`,
             messageType: matchedQA.answerAudio ? "audio" : "video",
-            timestamp: new Date(),
+            timestamp: new Date()
           });
           await session.save();
         } catch (err) {
@@ -800,7 +828,11 @@ await session.save();
     // ✅ Fallback if no QA match
     else {
       const fallback = 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.';
-      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: fallback });
+      await client.messages.create({
+        from: 'whatsapp:+15558784207',
+        to: from,
+        body: fallback
+      });
 
       if (session.conversationHistory.length > 0) {
         session.conversationHistory[session.conversationHistory.length - 1].botReply = fallback;
