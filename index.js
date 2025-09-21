@@ -441,29 +441,21 @@ function safeRead(filePath) {
 // Accept only proper media extensions Twilio supports
 const ALLOWED_EXT = new Set([".mp3", ".mp4", ".wav", ".ogg", ".amr"]);
 
-function toAbsoluteUrl(fileUrl) {
-  if (!fileUrl) return "";
-  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
-  return `${PUBLIC_BASE_URL}/${fileUrl.replace(/^\//, "")}`;
-}
+function toAbsoluteUrl(url) {
+  if (!url) return null;
 
-function hasValidExt(url) {
-  const m = url.toLowerCase().match(/\.(mp3|mp4|wav|ogg|amr)(\?.*)?$/);
-  return !!m && ALLOWED_EXT.has(`.${m[1]}`);
-}
+  // Already a full URL → return directly
+  if (url.startsWith("http")) return url;
 
-async function isReachable(url) {
-  try {
-    const r = await axios.head(url, { timeout: 5000, maxRedirects: 3 });
-    return r.status >= 200 && r.status < 400;
-  } catch (e) {
-    console.warn("⚠️ Media HEAD failed:", url, e.response?.status || e.message);
-    return false;
+  // Prevent API/webhook paths from being sent as media
+  if (url.includes("/webhook") || url.includes("/api")) {
+    console.warn("⚠️ Invalid media path passed to toAbsoluteUrl:", url);
+    return null;
   }
+
+  const base = process.env.PUBLIC_BASE_URL || "https://watsappai2.onrender.com";
+  return `${base.replace(/\/$/, '')}/${url.replace(/^\//, '')}`;
 }
-
-
-//--cloudinary------
 
 //--google auth=====
 
@@ -720,64 +712,79 @@ app.post('/webhook', async (req, res) => {
     const matchedQA = incomingMsg ? await findBestMatch(incomingMsg) : null;
     console.log('🎯 Matched QA:', matchedQA ? matchedQA.question : '❌ none');
 
-    // ✅ Send intro sequence first time
-    if (!session.hasReceivedWelcome) {
-      console.log('👋 Sending intro sequence...');
+// ✅ Send intro sequence first time
+if (!session.hasReceivedWelcome) {
+  console.log('👋 Sending intro sequence...');
 
-      // Mark early to prevent re-send
-      session.hasReceivedWelcome = true;
-      await session.save();
+  // Mark early to avoid re-sending on retries
+  session.hasReceivedWelcome = true;
+  await session.save();
 
-      const introDoc = await Intro.findOne();
-      const introSequence = introDoc?.sequence || [];
+  const introDoc = await Intro.findOne();
+  const introSequence = introDoc?.sequence || [];
 
-      const newHistoryEntries = [];
+  const newHistoryEntries = [];
 
-      for (const step of introSequence) {
-        if (!step) continue;
-        let botReply = "";
+  for (const step of introSequence) {
+    if (!step) continue;
+    let botReply = "";
 
-        try {
-          if (step.type === 'text') {
-            botReply = step.content || "";
-            await client.messages.create({
-              from: 'whatsapp:+15558784207',
-              to: from,
-              body: botReply
-            });
-          } else if (step.type === 'video' || step.type === 'audio') {
-            if (!step.fileUrl) continue;
-            const safeUrl = toAbsoluteUrl(step.fileUrl);
-            await client.messages.create({
-              from: 'whatsapp:+15558784207',
-              to: from,
-              mediaUrl: [safeUrl]
-            });
-            botReply = `[${step.type.toUpperCase()} sent]`;
-          }
+    try {
+      let msg;
 
-          // ✅ Log intro step
-          newHistoryEntries.push({
-            userMessage: null,
-            botReply,
-            messageType: step.type,
-            timestamp: new Date()
-          });
-
-          // Delay to avoid WhatsApp rate limits
-          await new Promise(r => setTimeout(r, 1200));
-        } catch (err) {
-          console.warn(`⚠️ Failed to send intro ${step.type}:`, err.message);
+      if (step.type === 'text') {
+        botReply = step.content || "";
+        msg = await client.messages.create({
+          from: 'whatsapp:+15558784207',
+          to: from,
+          body: botReply
+        });
+      } else if (step.type === 'video' || step.type === 'audio') {
+        if (!step.fileUrl) continue;
+        const safeUrl = toAbsoluteUrl(step.fileUrl);
+        if (!safeUrl) {
+          console.warn(`⚠️ Skipping invalid ${step.type} URL:`, step.fileUrl);
+          continue;
         }
+
+        msg = await client.messages.create({
+          from: 'whatsapp:+15558784207',
+          to: from,
+          mediaUrl: [safeUrl]
+        });
+
+        botReply = `[${step.type.toUpperCase()} sent]`;
       }
 
-      if (newHistoryEntries.length > 0) {
-        session.conversationHistory.push(...newHistoryEntries);
-        await session.save();
+      // ✅ Log Twilio delivery status
+      if (msg) {
+        console.log(`📤 Sent ${step.type}: SID=${msg.sid}, Status=${msg.status}`);
       }
 
-      console.log('✅ Intro sequence sent and logged.');
+      // ✅ Log into DB
+      newHistoryEntries.push({
+        userMessage: null,
+        botReply,
+        messageType: step.type,
+        timestamp: new Date()
+      });
+
+      // Delay between messages (avoid WhatsApp rate limits)
+      await new Promise(r => setTimeout(r, 1200));
+
+    } catch (err) {
+      console.error(`❌ Failed to send intro ${step.type}:`, err.message);
     }
+  }
+
+  // Save all intro steps together
+  if (newHistoryEntries.length > 0) {
+    session.conversationHistory.push(...newHistoryEntries);
+    await session.save();
+  }
+
+  console.log('✅ Intro sequence sent and logged.');
+}
 
     // ✅ If matched QA
     else if (matchedQA) {
