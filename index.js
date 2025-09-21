@@ -683,30 +683,40 @@ app.post('/webhook', async (req, res) => {
 
     // ✅ Load or create session
     let session = await CustomerSession.findOne({ phoneNumber: from });
-    if (!session) {
-      session = new CustomerSession({
-        phoneNumber: from,
-        adSource: { headline: adHeadline, source: adSource, type: adType, ctwa_clid: ctwaClid },
-        hasReceivedWelcome: false,
-        conversationHistory: [],
-        currentSteps: [],
-        messageHistory: [],
-        lastInteractedAt: new Date(),
-      });
-      console.log('🆕 New session created for', from);
-    }
 
-    if (!Array.isArray(session.conversationHistory)) session.conversationHistory = [];
+if (!session) {
+  session = new CustomerSession({
+    phoneNumber: from,
+    adSource: {
+      headline: adHeadline || null,
+      source: adSource || null,
+      type: adType || null,
+      ctwa_clid: ctwaClid || null
+    },
+    hasReceivedWelcome: false,
+    conversationHistory: []
+  });
 
-    // Always add user message
-    session.conversationHistory.push({
-      userMessage: incomingMsg,
-      botReply: null, // will be filled in next steps
-      messageType: numMedia > 0 ? "audio" : "text",
-      timestamp: new Date(),
-    });
-    session.lastInteractedAt = new Date();
-    await session.save();
+  console.log("🆕 New session created for", from);
+}
+
+// Ensure conversationHistory is always an array
+if (!Array.isArray(session.conversationHistory)) {
+  session.conversationHistory = [];
+}
+
+// Always add the incoming user message
+session.conversationHistory.push({
+  userMessage: incomingMsg,
+  botReply: null, // will be filled later
+  messageType: numMedia > 0 ? "audio" : "text",
+  timestamp: new Date()
+});
+
+// Update last interaction time automatically
+session.updatedAt = new Date();
+
+await session.save();
 
     // ✅ Try to match QA
     const matchedQA = incomingMsg ? await findBestMatch(incomingMsg) : null;
