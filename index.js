@@ -708,12 +708,11 @@ app.post('/webhook', async (req, res) => {
     // Always add the incoming user message
     session.conversationHistory.push({
       userMessage: incomingMsg,
-      botReply: null, // will be filled later
+      botReply: null, 
       messageType: numMedia > 0 ? "audio" : "text",
       timestamp: new Date()
     });
 
-    // Update last interaction time automatically
     session.updatedAt = new Date();
     await session.save();
 
@@ -725,7 +724,7 @@ app.post('/webhook', async (req, res) => {
     if (!session.hasReceivedWelcome) {
       console.log('👋 Sending intro sequence...');
 
-      // Mark early so retries won’t re-trigger intro
+      // Mark early to prevent re-send
       session.hasReceivedWelcome = true;
       await session.save();
 
@@ -757,6 +756,7 @@ app.post('/webhook', async (req, res) => {
             botReply = `[${step.type.toUpperCase()} sent]`;
           }
 
+          // ✅ Log intro step
           newHistoryEntries.push({
             userMessage: null,
             botReply,
@@ -764,14 +764,13 @@ app.post('/webhook', async (req, res) => {
             timestamp: new Date()
           });
 
-          // small delay between messages
+          // Delay to avoid WhatsApp rate limits
           await new Promise(r => setTimeout(r, 1200));
         } catch (err) {
           console.warn(`⚠️ Failed to send intro ${step.type}:`, err.message);
         }
       }
 
-      // Save all intro replies in one go
       if (newHistoryEntries.length > 0) {
         session.conversationHistory.push(...newHistoryEntries);
         await session.save();
@@ -782,7 +781,8 @@ app.post('/webhook', async (req, res) => {
 
     // ✅ If matched QA
     else if (matchedQA) {
-      let botMessage = matchedQA.answerText || "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
+      let botMessage = matchedQA.answerText || 
+        "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
       console.log('💬 Sending text answer:', botMessage);
 
       await client.messages.create({
@@ -794,10 +794,11 @@ app.post('/webhook', async (req, res) => {
       // Update last entry with bot reply
       if (session.conversationHistory.length > 0) {
         session.conversationHistory[session.conversationHistory.length - 1].botReply = botMessage;
+        session.conversationHistory[session.conversationHistory.length - 1].messageType = "text";
         await session.save();
       }
 
-      // ✅ Audio or video answer
+      // ✅ Send media answer if available
       if (matchedQA.answerAudio || matchedQA.answerVideo) {
         let safeUrl = matchedQA.answerAudio || matchedQA.answerVideo;
         if (!safeUrl.startsWith('http')) {
@@ -836,11 +837,11 @@ app.post('/webhook', async (req, res) => {
 
       if (session.conversationHistory.length > 0) {
         session.conversationHistory[session.conversationHistory.length - 1].botReply = fallback;
+        session.conversationHistory[session.conversationHistory.length - 1].messageType = "text";
         await session.save();
       }
     }
 
-    // ✅ respond once
     res.sendStatus(200);
 
   } catch (err) {

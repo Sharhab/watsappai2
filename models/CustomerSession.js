@@ -1,13 +1,19 @@
 import mongoose from "mongoose";
 
-const ConversationEntrySchema = new mongoose.Schema({
-  userMessage: { type: String },              // what customer sent
-  botReply: { type: String },                 // what AI replied
-  messageType: { type: String, enum: ["text", "audio"] },
+// Conversation entry schema for session history
+const conversationEntrySchema = new mongoose.Schema({
+  userMessage: { type: String },                  // what customer sent
+  botReply: { type: String },                     // what AI replied
+  messageType: { 
+    type: String, 
+    enum: ["text", "audio", "video", "image", "file"], // ✅ expanded
+    default: "text" 
+  },
   timestamp: { type: Date, default: Date.now }
 });
 
-const CustomerSessionSchema = new mongoose.Schema(
+// Customer session schema
+const customerSessionSchema = new mongoose.Schema(
   {
     phoneNumber: { type: String, required: true, unique: true },
 
@@ -17,9 +23,9 @@ const CustomerSessionSchema = new mongoose.Schema(
       { type: mongoose.Schema.Types.ObjectId, ref: "QA" }
     ],
 
-    conversationHistory: {
-      type: [ConversationEntrySchema],
-      default: []
+    conversationHistory: { 
+      type: [conversationEntrySchema], 
+      default: [] 
     },
 
     // ✅ structured ad source metadata
@@ -28,14 +34,11 @@ const CustomerSessionSchema = new mongoose.Schema(
       source: { type: String, default: null },
       type: { type: String, default: null },
       ctwa_clid: { type: String, default: null }
-    },
-
-    createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now }
+    }
   },
   {
-    timestamps: true // ✅ auto-manages createdAt & updatedAt
+    timestamps: true // auto-manages createdAt & updatedAt
   }
 );
 
-export default mongoose.model("CustomerSession", CustomerSessionSchema);
+export default mongoose.model("CustomerSession", customerSessionSchema);
