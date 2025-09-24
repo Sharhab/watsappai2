@@ -771,7 +771,7 @@ if (!session.hasReceivedWelcome) {
       if (step.type === "text") {
         botReply = step.content || "";
         await client.messages.create({
-          from: 'whatsapp:++14155238886',
+          from: 'whatsapp:+15558784207',
           to: from,
           body: botReply,
           statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
@@ -780,7 +780,7 @@ if (!session.hasReceivedWelcome) {
         if (!step.fileUrl) continue;
         const safeUrl = toAbsoluteUrl(step.fileUrl);
         await client.messages.create({
-          from: 'whatsapp:+14155238886',
+          from: 'whatsapp:+15558784207',
           to: from,
           mediaUrl: [safeUrl],
           statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
@@ -810,7 +810,7 @@ if (!session.hasReceivedWelcome) {
     // ✅ QA Answer Handling
     else if (matchedQA) {
       let botMessage = matchedQA.answerText || "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
-      await client.messages.create({ from: 'whatsapp:+14155238886', to: from, body: botMessage,  statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status` });
+      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botMessage,  statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status` });
 
       if (session.conversationHistory.length > 0) {
         const last = session.conversationHistory[session.conversationHistory.length - 1];
