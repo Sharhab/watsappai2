@@ -652,6 +652,24 @@ async function transcribeAudio(mediaUrl) {
   }
 }
 
+// ✅ Send WhatsApp template via Twilio
+async function sendTemplate(to, templateSid, variables = {}) {
+  try {
+    const msg = await client.messages.create({
+      from: 'whatsapp:+15558784207',
+      to,
+      contentSid: templateSid, // Twilio template SID
+      contentVariables: JSON.stringify(variables), // {{1}}, {{2}}, etc.
+      statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
+    });
+    console.log(`📤 Sent template: SID=${msg.sid}, Status=${msg.status}`);
+    return true;
+  } catch (err) {
+    console.error("❌ Template send failed:", err.message);
+    return false;
+  }
+}
+
 app.post('/webhook', async (req, res) => {
   const numMedia = Number.parseInt(req.body?.NumMedia || '0', 10) || 0;
   let incomingMsg = req.body?.Body || '';
@@ -734,59 +752,65 @@ app.post('/webhook', async (req, res) => {
     console.log('🎯 Matched QA:', matchedQA ? matchedQA.question : '❌ none');
 
     // ✅ Intro Sequence
-    if (!session.hasReceivedWelcome) {
-      console.log('👋 Sending intro sequence...');
-      session.hasReceivedWelcome = true;
+if (!session.hasReceivedWelcome) {
+  console.log("👋 Sending intro sequence...");
+
+  // 1. Send approved template first
+  const templateSid = process.env.WHATSAPP_TEMPLATE_SID || "HXxxxxxx..."; // paste your Twilio template SID here
+  const templateOk = await sendTemplate(from, templateSid, { 1: "Friend" });
+
+  if (templateOk) {
+    // 2. Then send the rest of intro
+    const introDoc = await Intro.findOne();
+    const introSequence = introDoc?.sequence || [];
+
+    for (const step of introSequence) {
+      if (!step) continue;
+      let botReply = "";
+
+      if (step.type === "text") {
+        botReply = step.content || "";
+        await client.messages.create({
+          from: 'whatsapp:++14155238886',
+          to: from,
+          body: botReply,
+          statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
+        });
+      } else if (step.type === "video" || step.type === "audio") {
+        if (!step.fileUrl) continue;
+        const safeUrl = toAbsoluteUrl(step.fileUrl);
+        await client.messages.create({
+          from: 'whatsapp:+14155238886',
+          to: from,
+          mediaUrl: [safeUrl],
+          statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
+        });
+        botReply = `[${step.type.toUpperCase()} sent]`;
+      }
+
+      session.conversationHistory.push({
+        sender: "ai",
+        content: botReply,
+        type: step.type,
+        timestamp: new Date()
+      });
       await session.save();
 
-      const introDoc = await Intro.findOne();
-      const introSequence = introDoc?.sequence || [];
-      const newHistoryEntries = [];
-
-      for (const step of introSequence) {
-        if (!step) continue;
-        let botReply = "";
-        let safeUrl = step.fileUrl;
-
-        // Upload intro media to Cloudinary if not HTTPS
-        if ((step.type === "audio" || step.type === "video") && safeUrl && !safeUrl.startsWith("http")) {
-          const resp = await fetch(safeUrl);
-          const buf = Buffer.from(await resp.arrayBuffer());
-          safeUrl = await uploadToCloudinary(buf, step.type, "intro_steps");
-        }
-
-        try {
-          let msg;
-          if (step.type === 'text') {
-            botReply = step.content || "";
-            msg = await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botReply,   statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status` });
-          } else if (step.type === 'video' || step.type === 'audio') {
-            if (!safeUrl) continue;
-            msg = await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl] });
-            botReply = `[${step.type.toUpperCase()} sent]`;
-          }
-
-          if (msg) console.log(`📤 Sent ${step.type}: SID=${msg.sid}, Status=${msg.status}`);
-
-          newHistoryEntries.push({ userMessage: null, botReply, messageType: step.type, timestamp: new Date() });
-          await new Promise(r => setTimeout(r, 1200)); // delay
-        } catch (err) {
-          console.error(`❌ Failed to send intro ${step.type}:`, err.message);
-        }
-      }
-
-      if (newHistoryEntries.length > 0) {
-        session.conversationHistory.push(...newHistoryEntries);
-        await session.save();
-      }
-
-      console.log('✅ Intro sequence sent and logged.');
+      await new Promise(r => setTimeout(r, 2500)); // delay each step
     }
+
+    session.hasReceivedWelcome = true;
+    await session.save();
+    console.log("✅ Intro sequence sent and logged.");
+  } else {
+    console.warn("⚠️ Intro skipped: template not accepted.");
+  }
+}
 
     // ✅ QA Answer Handling
     else if (matchedQA) {
       let botMessage = matchedQA.answerText || "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
-      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botMessage,  statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status` });
+      await client.messages.create({ from: 'whatsapp:+14155238886', to: from, body: botMessage,  statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status` });
 
       if (session.conversationHistory.length > 0) {
         const last = session.conversationHistory[session.conversationHistory.length - 1];
@@ -806,7 +830,7 @@ app.post('/webhook', async (req, res) => {
         }
 
         try {
-          const msg = await client.messages.create({ from: 'whatsapp:+15558784207', to: from, mediaUrl: [safeUrl],   statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`});
+          const msg = await client.messages.create({ from: 'whatsapp:+14155238886', to: from, mediaUrl: [safeUrl],   statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`});
           console.log(`📤 Sent QA media: SID=${msg.sid}, Status=${msg.status}`);
 
           session.conversationHistory.push({
@@ -825,7 +849,7 @@ app.post('/webhook', async (req, res) => {
     // ✅ Fallback
     else {
       const fallback = 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.';
-      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: fallback });
+      await client.messages.create({ from: 'whatsapp:+14155238886', to: from, body: fallback });
 
       if (session.conversationHistory.length > 0) {
         const last = session.conversationHistory[session.conversationHistory.length - 1];
