@@ -782,6 +782,15 @@ app.post('/webhook', async (req, res) => {
           if (!step) continue;
 
           try {
+
+            await client.messages.create({
+  from: 'whatsapp:+15558784207',
+  to: from,
+  contentSid: process.env.WHATSAPP_TEMPLATE_SID,
+  contentVariables: JSON.stringify({ 1: "Sharhabilu" })
+});
+
+
             if (step.type === "text") {
               await sendWithRetry({
                 from: 'whatsapp:+15558784207',
