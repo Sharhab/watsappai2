@@ -670,40 +670,52 @@ async function sendTemplate(to, templateSid, variables = {}) {
   }
 }
 
+// === Helper: send with retry ===
+async function sendWithRetry(messageOpts, maxRetries = 2) {
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      const msg = await client.messages.create(messageOpts);
+      console.log(`📤 Sent message: SID=${msg.sid}, Status=${msg.status}`);
+      return msg; // success
+    } catch (err) {
+      console.warn(`⚠️ Attempt ${attempt + 1} failed:`, err.message);
+      if (attempt === maxRetries) throw err;
+      // wait before retry (exponential backoff: 2s, then 4s, then 8s)
+      await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+      attempt++;
+    }
+  }
+}
+
 app.post('/webhook', async (req, res) => {
   const numMedia = Number.parseInt(req.body?.NumMedia || '0', 10) || 0;
   let incomingMsg = req.body?.Body || '';
   const from = req.body?.From;
 
-  // 🔎 Capture referral metadata
+  // 🔎 Referral metadata
   const adHeadline = req.body?.ReferralHeadline || null;
   const adSource = req.body?.ReferralSource || null;
   const adType = req.body?.ReferralType || null;
   const ctwaClid = req.body?.ReferralCtwaClid || null;
 
   console.log('📩 Incoming from:', from);
-  console.log('📣 Referral Info:', { adHeadline, adSource, adType, ctwaClid });
 
   try {
-    // ✅ If receipt/image uploaded
+    // ✅ Receipt / image upload
     if (numMedia && req.body?.MediaUrl0 && (req.body?.MediaContentType0 || "").startsWith("image/")) {
       const mediaUrl = req.body.MediaUrl0;
       console.log("📥 New receipt uploaded:", mediaUrl);
 
       try {
-        // 1. Download file buffer
         const response = await fetch(mediaUrl);
         const buffer = Buffer.from(await response.arrayBuffer());
-
-        // 2. Upload to Cloudinary (permanent copy)
         const permanentUrl = await uploadToCloudinary(buffer, "image", "receipts");
         console.log("☁️ Receipt stored in Cloudinary:", permanentUrl);
 
-        // 3. OCR from permanent URL
         const { data: { text } } = await Tesseract.recognize(permanentUrl, "eng");
         console.log("🔎 OCR result:", text);
 
-        // 4. Extract & save
         const receiptExtract = extractReceiptInfo(text);
         await Order.create({
           phone: from.replace("whatsapp:", ""),
@@ -717,7 +729,7 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
-    // ✅ If voice note, transcribe
+    // ✅ Voice note transcription
     if (numMedia > 0 && (req.body?.MediaContentType0 || '').includes('audio')) {
       const mediaUrl = req.body.MediaUrl0;
       const transcript = await transcribeAudio(mediaUrl);
@@ -736,7 +748,7 @@ app.post('/webhook', async (req, res) => {
       console.log("🆕 New session created for", from);
     }
 
-    // Always add the incoming user message
+    // Always add incoming user message
     session.conversationHistory.push({
       userMessage: incomingMsg,
       botReply: null,
@@ -747,70 +759,77 @@ app.post('/webhook', async (req, res) => {
     session.updatedAt = new Date();
     await session.save();
 
-    // ✅ QA Matching
+    // ✅ QA matching
     const matchedQA = incomingMsg ? await findBestMatch(incomingMsg) : null;
     console.log('🎯 Matched QA:', matchedQA ? matchedQA.question : '❌ none');
 
-    // ✅ Intro Sequence
-if (!session.hasReceivedWelcome) {
-  console.log("👋 Sending intro sequence...");
+    // ✅ Intro sequence
+    if (!session.hasReceivedWelcome) {
+      console.log("👋 Sending intro sequence...");
 
-  // 1. Send approved template first
-  const templateSid = process.env.WHATSAPP_TEMPLATE_SID || "HXxxxxxx..."; // paste your Twilio template SID here
-  const templateOk = await sendTemplate(from, templateSid, { 1: "Friend" });
+      // 1. Send approved template first
+      const templateSid = process.env.WHATSAPP_TEMPLATE_SID;
+      const templateOk = await sendTemplate(from, templateSid, { 1: "Friend" });
 
-  if (templateOk) {
-    // 2. Then send the rest of intro
-    const introDoc = await Intro.findOne();
-    const introSequence = introDoc?.sequence || [];
+      if (templateOk) {
+        await new Promise(r => setTimeout(r, 3000)); // wait after template
 
-    for (const step of introSequence) {
-      if (!step) continue;
-      let botReply = "";
+        // 2. Send intro sequence
+        const introDoc = await Intro.findOne();
+        const introSequence = introDoc?.sequence || [];
 
-      if (step.type === "text") {
-        botReply = step.content || "";
-        await client.messages.create({
-          from: 'whatsapp:+15558784207',
-          to: from,
-          body: botReply,
-          statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
-        });
-      } else if (step.type === "video" || step.type === "audio") {
-        if (!step.fileUrl) continue;
-        const safeUrl = toAbsoluteUrl(step.fileUrl);
-        await client.messages.create({
-          from: 'whatsapp:+15558784207',
-          to: from,
-          mediaUrl: [safeUrl],
-          statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
-        });
-        botReply = `[${step.type.toUpperCase()} sent]`;
+        for (const step of introSequence) {
+          if (!step) continue;
+
+          try {
+            if (step.type === "text") {
+              await sendWithRetry({
+                from: 'whatsapp:+15558784207',
+                to: from,
+                body: step.content,
+                statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
+              });
+            } else if ((step.type === "video" || step.type === "audio") && step.fileUrl) {
+              const safeUrl = toAbsoluteUrl(step.fileUrl);
+              await sendWithRetry({
+                from: 'whatsapp:+15558784207',
+                to: from,
+                mediaUrl: [safeUrl],
+                statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
+              });
+            }
+
+            session.conversationHistory.push({
+              sender: "ai",
+              content: step.type === "text" ? step.content : `[${step.type.toUpperCase()} sent]`,
+              type: step.type,
+              timestamp: new Date()
+            });
+            await session.save();
+
+            await new Promise(r => setTimeout(r, 3500)); // space between steps
+          } catch (err) {
+            console.error(`❌ Failed to send intro step (${step.type}):`, err.message);
+          }
+        }
+
+        session.hasReceivedWelcome = true;
+        await session.save();
+        console.log("✅ Intro sequence sent and logged.");
+      } else {
+        console.warn("⚠️ Intro skipped: template not accepted.");
       }
-
-      session.conversationHistory.push({
-        sender: "ai",
-        content: botReply,
-        type: step.type,
-        timestamp: new Date()
-      });
-      await session.save();
-
-      await new Promise(r => setTimeout(r, 2500)); // delay each step
     }
 
-    session.hasReceivedWelcome = true;
-    await session.save();
-    console.log("✅ Intro sequence sent and logged.");
-  } else {
-    console.warn("⚠️ Intro skipped: template not accepted.");
-  }
-}
-
-    // ✅ QA Answer Handling
+    // ✅ QA answer handling
     else if (matchedQA) {
       let botMessage = matchedQA.answerText || "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
-      await client.messages.create({ from: 'whatsapp:+15558784207', to: from, body: botMessage,  statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status` });
+      await sendWithRetry({
+        from: 'whatsapp:+15558784207',
+        to: from,
+        body: botMessage,
+        statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
+      });
 
       if (session.conversationHistory.length > 0) {
         const last = session.conversationHistory[session.conversationHistory.length - 1];
@@ -821,8 +840,6 @@ if (!session.hasReceivedWelcome) {
 
       if (matchedQA.answerAudio || matchedQA.answerVideo) {
         let safeUrl = matchedQA.answerAudio || matchedQA.answerVideo;
-
-        // Upload QA media to Cloudinary if not HTTPS
         if (safeUrl && !safeUrl.startsWith("http")) {
           const resp = await fetch(safeUrl);
           const buf = Buffer.from(await resp.arrayBuffer());
@@ -830,7 +847,12 @@ if (!session.hasReceivedWelcome) {
         }
 
         try {
-          const msg = await client.messages.create({ from: 'whatsapp:+14155238886', to: from, mediaUrl: [safeUrl],   statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`});
+          const msg = await sendWithRetry({
+            from: 'whatsapp:+15558784207',
+            to: from,
+            mediaUrl: [safeUrl],
+            statusCallback: `${process.env.PUBLIC_BASE_URL}/twilio-status`
+          });
           console.log(`📤 Sent QA media: SID=${msg.sid}, Status=${msg.status}`);
 
           session.conversationHistory.push({
@@ -841,30 +863,19 @@ if (!session.hasReceivedWelcome) {
           });
           await session.save();
         } catch (err) {
-          console.warn('⚠️ Failed to send QA media:', err.message);
+          console.warn('⚠️ Failed to send QA media after retries:', err.message);
         }
       }
     }
 
-    // ✅ Fallback
-    else {
-      const fallback = 'Ba mu gane tambayarka ba sosai. Idan kana so, aiko da sautin murya ko ka sake rubutu da cikakken bayani.';
-      await client.messages.create({ from: 'whatsapp:+14155238886', to: from, body: fallback });
-
-      if (session.conversationHistory.length > 0) {
-        const last = session.conversationHistory[session.conversationHistory.length - 1];
-        last.botReply = fallback;
-        last.messageType = "text";
-        await session.save();
-      }
-    }
-
     res.sendStatus(200);
+
   } catch (err) {
     console.error('❌ Webhook failed:', err);
     if (!res.headersSent) res.sendStatus(500);
   }
 });
+
 
 process.on("uncaughtException", (err) => {
   console.error("💥 Uncaught Exception:", err.message);
