@@ -1,35 +1,42 @@
+// src/modelsShared/qaSchema.js
 import mongoose from "mongoose";
 
 const qaSchema = new mongoose.Schema({
   question: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
   },
   answerText: {
-    type: String
+    type: String,
   },
   answerAudio: {
-    type: String
+    type: String,
+  },
+  answerVideo: {
+    type: String,
   },
   type: {
     type: String,
     enum: ["qa", "intro"],
-    default: "qa"
+    default: "qa",
   },
   sequence: [
     {
       type: {
         type: String,
         enum: ["text", "audio", "video"],
-        required: true
+        required: true,
       },
       content: {
         type: String,
-        required: true
-      }
-    }
-  ]
+        required: true,
+      },
+      fileUrl: {
+        type: String,
+      },
+    },
+  ],
 });
 
-export default mongoose.model("Question", qaSchema);
+export default qaSchema;

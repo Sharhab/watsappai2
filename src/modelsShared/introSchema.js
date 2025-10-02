@@ -1,3 +1,4 @@
+// src/modelsShared/introSchema.js
 import mongoose from "mongoose";
 
 const introStepSchema = new mongoose.Schema({
@@ -7,12 +8,10 @@ const introStepSchema = new mongoose.Schema({
     required: true,
   },
   content: {
-    type: String, // text content OR file path
-    required: false,
+    type: String,
   },
   fileUrl: {
-    type: String, // for uploaded file
-    required: false,
+    type: String,
   },
 });
 
@@ -22,16 +21,14 @@ const introSchema = new mongoose.Schema({
     validate: {
       validator: function (seq) {
         if (seq.length !== 6) return false;
-
-        // Expected order by type only
         const expectedOrder = ["video", "video", "audio", "audio", "text", "audio"];
         return seq.every((step, i) => step.type === expectedOrder[i]);
       },
       message:
-        "Intro sequence must have exactly 6 steps in this order: 2 videos, 2 audios, 1 text, 1 audio.",
+        "Intro must have 6 steps in this order: 2 videos, 2 audios, 1 text, 1 audio.",
     },
     required: true,
   },
 });
 
-export default mongoose.model("Intro", introSchema);
+export default introSchema;

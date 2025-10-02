@@ -1,4 +1,4 @@
-// models/Order.js
+// src/modelsShared/orderSchema.js
 import mongoose from "mongoose";
 
 const receiptExtractSchema = new mongoose.Schema({
@@ -9,10 +9,10 @@ const receiptExtractSchema = new mongoose.Schema({
 });
 
 const orderSchema = new mongoose.Schema({
-  phone: { type: String, required: true },  // Customer phone
-  receiptUrl: String,                       // Cloudinary/file URL
-  receiptExtract: receiptExtractSchema,     // Extracted receipt info
+  phone: { type: String, required: true },
+  receiptUrl: String,
+  receiptExtract: receiptExtractSchema,
   createdAt: { type: Date, default: Date.now },
 });
 
-export default mongoose.model("Order", orderSchema);
+export default orderSchema;
