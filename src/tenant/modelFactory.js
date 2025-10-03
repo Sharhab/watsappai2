@@ -1,21 +1,12 @@
-// src/tenant/modelFactory.js
-import mongoose from "mongoose";
-
-// --- Shared Schemas ---
 import qaSchema from "../modelsShared/qaSchema.js";
 import introSchema from "../modelsShared/introSchema.js";
 import customerSessionSchema from "../modelsShared/customerSessionSchema.js";
 import orderSchema from "../modelsShared/orderSchema.js";
 import conversationSchema from "../modelsShared/conversationSchema.js";
 
-/**
- * Create or reuse models for a tenant connection.
- * Prevents recompilation errors by caching models per connection.
- */
 export function createModelsForConnection(conn) {
   if (!conn) throw new Error("Missing tenant DB connection");
 
-  // Use mongoose-connection-specific cache
   if (!conn.models.QA) {
     conn.model("QA", qaSchema);
   }
@@ -32,7 +23,6 @@ export function createModelsForConnection(conn) {
     conn.model("Conversation", conversationSchema);
   }
 
-  // Return strongly-typed models
   return {
     QA: conn.models.QA,
     Intro: conn.models.Intro,
