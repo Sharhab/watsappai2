@@ -30,6 +30,8 @@ async function startServer() {
       origin: [
         "http://localhost:5173",
         "https://watsappai.onrender.com",
+                "https://watsappai2.onrender.com"
+
       ],
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],

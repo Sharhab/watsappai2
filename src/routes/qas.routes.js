@@ -8,7 +8,7 @@ const r = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ➕ Create QA
-r.post("/", authRequired, withTenant, upload.single("answerAudio"), async (req, res) => {
+r.post("/", withTenant, authRequired, upload.single("answerAudio"), async (req, res) => {
   try {
     const { QA } = req.models;
     const { question, answerText } = req.body;
@@ -32,7 +32,7 @@ r.post("/", authRequired, withTenant, upload.single("answerAudio"), async (req, 
 });
 
 // 📖 Get all QAs (tenant scoped)
-r.get("/", authRequired, withTenant, async (req, res) => {
+r.get("/", withTenant, authRequired,  async (req, res) => {
   try {
     const { QA } = req.models;
     const qas = await QA.find().lean();
@@ -43,7 +43,7 @@ r.get("/", authRequired, withTenant, async (req, res) => {
 });
 
 // ✏️ Update QA
-r.put("/:id", authRequired, withTenant, upload.single("answerAudio"), async (req, res) => {
+r.put("/:id", withTenant, authRequired, upload.single("answerAudio"), async (req, res) => {
   try {
     const { QA } = req.models;
     const qa = await QA.findById(req.params.id);
@@ -64,7 +64,7 @@ r.put("/:id", authRequired, withTenant, upload.single("answerAudio"), async (req
 });
 
 // 🗑 Delete QA
-r.delete("/:id", authRequired, withTenant, async (req, res) => {
+r.delete("/:id", withTenant, authRequired, async (req, res) => {
   try {
     const { QA } = req.models;
     const qa = await QA.findByIdAndDelete(req.params.id);
