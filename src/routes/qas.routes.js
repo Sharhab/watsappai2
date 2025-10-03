@@ -34,10 +34,15 @@ r.post("/", authRequired,  withTenant, upload.single("answerAudio"), async (req,
 // 📖 Get all QAs (tenant scoped)
 r.get("/", authRequired, withTenant, async (req, res) => {
   try {
-    const { QA } = req.models;
+    const { QA } = req.models || {};
+    if (!QA) {
+      console.error("❌ No QA model bound for tenant:", req.headers["x-tenant-id"]);
+      return res.status(500).json({ error: "Tenant model not found" });
+    }
     const qas = await QA.find().lean();
     res.json({ qas });
   } catch (err) {
+    console.error("❌ QA GET failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
