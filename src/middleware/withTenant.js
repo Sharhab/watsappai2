@@ -7,17 +7,19 @@ export async function withTenant(req, res, next) {
   try {
     let tenantSlug = null;
 
-    // ✅ Prefer tenantSlug from JWT
+    // ✅ Prefer tenantSlug from JWT (support both old + new field names)
     if (req.user?.tenantSlug) {
       tenantSlug = req.user.tenantSlug;
+    } else if (req.user?.tenant) {
+      tenantSlug = req.user.tenant;
     }
 
-    // If missing, try resolve by header (for admin tools) 
+    // ✅ If missing, try resolve by header (admin tools / frontend fetch)
     if (!tenantSlug && req.headers["x-tenant-id"]) {
       tenantSlug = req.headers["x-tenant-id"];
     }
 
-    // If still missing, resolve by WhatsApp number (for incoming webhook)
+    // ✅ If still missing, resolve by WhatsApp number (incoming webhook)
     if (!tenantSlug && req.body?.To) {
       const tenantDoc = await Tenant.findOne({ whatsappNumber: req.body.To }).lean();
       if (tenantDoc) {
@@ -27,10 +29,11 @@ export async function withTenant(req, res, next) {
     }
 
     if (!tenantSlug) {
+      console.error("❌ Missing tenant context for request");
       return res.status(400).json({ error: "Missing tenant context" });
     }
 
-    // Connect to tenant DB
+    // ✅ Connect to tenant DB
     const conn = await getTenantConnection(tenantSlug);
     req.models = createModelsForConnection(conn);
     req.tenantSlug = tenantSlug;
@@ -42,6 +45,6 @@ export async function withTenant(req, res, next) {
     next();
   } catch (err) {
     console.error("❌ withTenant error:", err);
-    res.status(500).json({ error: "Tenant resolution failed" });
+    res.status(500).json({ error: "Tenant resolution failed", details: err.message });
   }
 }
