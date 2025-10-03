@@ -8,7 +8,7 @@ const r = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ➕ Create QA
-r.post("/", withTenant, authRequired, upload.single("answerAudio"), async (req, res) => {
+r.post("/", authRequired,  withTenant, upload.single("answerAudio"), async (req, res) => {
   try {
     const { QA } = req.models;
     const { question, answerText } = req.body;
@@ -32,7 +32,7 @@ r.post("/", withTenant, authRequired, upload.single("answerAudio"), async (req, 
 });
 
 // 📖 Get all QAs (tenant scoped)
-r.get("/", withTenant, authRequired,  async (req, res) => {
+r.get("/", authRequired, withTenant, async (req, res) => {
   try {
     const { QA } = req.models;
     const qas = await QA.find().lean();

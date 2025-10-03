@@ -5,15 +5,18 @@ export function authRequired(req, res, next) {
   const authHeader = req.headers["authorization"];
   if (!authHeader) return res.status(401).json({ error: "Missing token" });
 
-  const token = authHeader.split(" ")[1];
+  // Accept both "Bearer <token>" and just "<token>"
+  const parts = authHeader.split(" ");
+  const token = parts.length === 2 ? parts[1] : parts[0];
+
   if (!token) return res.status(401).json({ error: "Invalid token" });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // contains userId, tenantSlug, role
+    req.user = decoded; // { id, email, tenant, role }
     next();
   } catch (err) {
-    return res.status(403).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: "Invalid or expired token" });
   }
 }
 
@@ -22,7 +25,8 @@ export function authOptional(req, res, next) {
   const authHeader = req.headers["authorization"];
   if (!authHeader) return next();
 
-  const token = authHeader.split(" ")[1];
+  const parts = authHeader.split(" ");
+  const token = parts.length === 2 ? parts[1] : parts[0];
   if (!token) return next();
 
   try {
