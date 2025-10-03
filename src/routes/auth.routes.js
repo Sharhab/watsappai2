@@ -92,15 +92,30 @@ router.post("/register", async (req, res) => {
 /**
  * POST /api/auth/login
  */
+
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ success: false, error: "Invalid credentials" });
+    if (!user) {
+      return res.status(400).json({ success: false, error: "Invalid credentials" });
+    }
+
+    if (!user.passwordHash) {
+      console.error("❌ User has no passwordHash:", user);
+      return res.status(500).json({ success: false, error: "User misconfigured" });
+    }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(400).json({ success: false, error: "Invalid credentials" });
+    if (!valid) {
+      return res.status(400).json({ success: false, error: "Invalid credentials" });
+    }
+
+    if (!process.env.JWT_SECRET) {
+      console.error("❌ JWT_SECRET missing in environment!");
+      return res.status(500).json({ success: false, error: "Server misconfigured" });
+    }
 
     const token = jwt.sign(
       { id: user._id, email: user.email, tenant: user.tenantSlug, role: user.role },
@@ -109,10 +124,12 @@ router.post("/login", async (req, res) => {
     );
 
     res.json({ success: true, token, tenant: user.tenantSlug });
+
   } catch (err) {
-    console.error("❌ Login failed:", err);
-    res.status(500).json({ success: false, error: "Login failed" });
+    console.error("❌ Login failed with error:", err);
+    res.status(500).json({ success: false, error: err.message || "Login failed" });
   }
 });
 
 export default router;
+
