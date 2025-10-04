@@ -1,46 +1,31 @@
+// src/tenant/connection.js
 import mongoose from "mongoose";
 
 const cached = new Map();
 
-/**
- * Dynamically connects to tenant database.
- * Works with Render and MongoDB Atlas.
- */
 export async function getTenantConnection(tenantSlug) {
   if (!tenantSlug) throw new Error("Missing tenantSlug");
-
-  // ✅ Use cached connection if exists
   if (cached.has(tenantSlug)) return cached.get(tenantSlug);
 
-  // ✅ Use base URI and options from .env
-  const baseUri = process.env.MONGO_BASE_URI;
-  const options = process.env.MONGO_OPTIONS || "?retryWrites=true&w=majority";
+  const baseUri = process.env.MONGO_URI;
+  if (!baseUri) throw new Error("MONGO_URI missing from environment");
 
-  if (!baseUri)
-    throw new Error("Missing MONGO_BASE_URI in environment variables.");
+  // ✅ Extract cluster root (remove db name but keep cluster + query)
+  const parts = baseUri.split(".net");
+  const cluster = parts[0] + ".net"; // e.g. mongodb+srv://user:pass@cluster0.cztgo0n.mongodb.net
+  const query = parts[1]?.includes("?") ? parts[1].split("?")[1] : "retryWrites=true&w=majority";
 
-  // ✅ Ensure prefix correctness
-  if (!baseUri.startsWith("mongodb://") && !baseUri.startsWith("mongodb+srv://")) {
-    throw new Error(
-      `Invalid MONGO_BASE_URI format. Must start with mongodb:// or mongodb+srv://`
-    );
-  }
-
-  // ✅ Build the full tenant URI
   const dbName = `app_${tenantSlug}`;
-  const uri = `${baseUri}/${dbName}${options.startsWith("?") ? options : `?${options}`}`;
+  const uri = `${cluster}/${dbName}?${query}`;
 
-  console.log(`🔗 Connecting tenant DB: ${uri}`);
+  console.log("🔗 Connecting tenant DB:", uri);
 
-  // ✅ Create tenant connection
   const conn = await mongoose.createConnection(uri, {
     maxPoolSize: 10,
     serverSelectionTimeoutMS: 10000,
-    connectTimeoutMS: 10000,
   });
 
   cached.set(tenantSlug, conn);
-  console.log(`✅ Tenant DB ready for: ${dbName}`);
-
+  console.log(`✅ Tenant DB ready: ${dbName}`);
   return conn;
 }
