@@ -1,3 +1,4 @@
+// src/modelsShared/qaSchema.js
 import mongoose from "mongoose";
 
 const qaSchema = new mongoose.Schema({
@@ -13,4 +14,4 @@ const qaSchema = new mongoose.Schema({
   ],
 }, { timestamps: true });
 
-export default qaSchema;
+export default qaSchema;   // ✅ only schema, no model here

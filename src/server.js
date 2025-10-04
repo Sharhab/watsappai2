@@ -41,7 +41,7 @@ async function startServer() {
 
   // ✅ Master DB (tenants + users)
   try {
-    await mongoose.connect(process.env.MONGO_URI, {
+    await mongoose.connect(process.env.MONGO_BASE_URI, {
       serverSelectionTimeoutMS: 10000,
     });
     console.log("✅ Master DB connected");
