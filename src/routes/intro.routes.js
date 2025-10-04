@@ -5,11 +5,12 @@ import { authRequired } from "../middleware/auth.js";
 import { withTenant } from "../middleware/withTenant.js";
 
 const r = Router();
-const introUpload = multer({ storage: multer.memoryStorage() }).any();
-
+const introUpload = multer({ storage: multer.memoryStorage(),
+                            limits: { fileSize: 15 * 1024 * 1024 }, }).any();
+     
 r.get("/", authRequired, withTenant, async (req, res) => {
   const intro = await req.models.Intro.findOne();
-  res.json(intro || { sequence: [] });
+  res.json(intro || { sequence: [] }); 
 });
 
 r.post("/", authRequired, withTenant, introUpload, async (req, res) => {
