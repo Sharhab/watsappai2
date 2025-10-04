@@ -5,18 +5,22 @@ const cached = new Map();
 
 export async function getTenantConnection(tenantSlug) {
   if (!tenantSlug) throw new Error("Missing tenantSlug");
+
   if (cached.has(tenantSlug)) return cached.get(tenantSlug);
 
-  const baseUri = process.env.MONGO_URI;
-  if (!baseUri) throw new Error("MONGO_URI missing from environment");
+  const mongoUri = process.env.MONGO_URI;
+  if (!mongoUri) throw new Error("MONGO_URI missing from environment");
 
-  // ✅ Extract cluster root (remove db name but keep cluster + query)
-  const parts = baseUri.split(".net");
-  const cluster = parts[0] + ".net"; // e.g. mongodb+srv://user:pass@cluster0.cztgo0n.mongodb.net
-  const query = parts[1]?.includes("?") ? parts[1].split("?")[1] : "retryWrites=true&w=majority";
+  // ✅ Extract base and query safely
+  const [base, query] = mongoUri.split("?");
+
+  // Ensure trailing slash before database name
+  const baseWithSlash = base.endsWith("/") ? base : base + "/";
 
   const dbName = `app_${tenantSlug}`;
-  const uri = `${cluster}/${dbName}?${query}`;
+  const uri = query
+    ? `${baseWithSlash}${dbName}?${query}`
+    : `${baseWithSlash}${dbName}`;
 
   console.log("🔗 Connecting tenant DB:", uri);
 

@@ -1,3 +1,4 @@
+// src/tenant/connection.js
 import mongoose from "mongoose";
 
 const cached = new Map();
@@ -8,16 +9,18 @@ export async function getTenantConnection(tenantSlug) {
   if (cached.has(tenantSlug)) return cached.get(tenantSlug);
 
   const mongoUri = process.env.MONGO_URI;
-  if (!mongoUri) throw new Error("MONGO_URI not set in env");
+  if (!mongoUri) throw new Error("MONGO_URI missing from environment");
 
-  // Split into base + query
+  // ✅ Extract base and query safely
   const [base, query] = mongoUri.split("?");
-  const cleanBase = base.endsWith("/") ? base : base + "/"; // ensure trailing slash
+
+  // Ensure trailing slash before database name
+  const baseWithSlash = base.endsWith("/") ? base : base + "/";
 
   const dbName = `app_${tenantSlug}`;
   const uri = query
-    ? `${cleanBase}${dbName}?${query}`
-    : `${cleanBase}${dbName}`;
+    ? `${baseWithSlash}${dbName}?${query}`
+    : `${baseWithSlash}${dbName}`;
 
   console.log("🔗 Connecting tenant DB:", uri);
 
