@@ -28,52 +28,67 @@ async function generateUniqueSlug(name) {
 /**
  * POST /api/auth/register
  */
-
-// ✅ Basic Registration (phase 1)
 router.post("/register", async (req, res) => {
   try {
-    const { businessName, ownerEmail, ownerPhone, password } = req.body;
+    const { businessName, ownerEmail, ownerPhone, password  } = req.body;
 
-    if (!businessName || !ownerEmail || !password) {
-      return res.status(400).json({ error: "Business name, email, and password are required." });
+    if (!businessName || !ownerEmail || !password || !ownerPhone) {
+      return res.status(400).json({ success: false, error: "Missing required fields" });
     }
 
-    // Check if already exists
-    const slug = `app_${toSlug(businessName)}`;
-    const existing = await Tenant.findOne({ slug });
-    if (existing) return res.status(409).json({ error: "Business already registered." });
+    // Prevent duplicate email
+    const existingUser = await User.findOne({ email: ownerEmail });
+    if (existingUser) {
+      return res.status(400).json({ success: false, error: "Email already registered" });
+    }
 
-    // Hash password
-    const hashed = await bcrypt.hash(password, 10);
+    // Create unique tenant slug
+    const slug = await generateUniqueSlug(businessName);
+   
+        // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
 
-    // Create tenant without Twilio yet
-    const tenant = await Tenant.create({
+    // Create tenant entry
+        const tenant = await Tenant.create({
       slug,
       businessName,
       ownerEmail,
       ownerPhone,
-      password: hashed,
+      password: passwordHash,
       plan: "free",
       active: false, // will activate after payment
       twilio: {},    // empty for now
     });
+    
 
-    // Create JWT token
+    // Create owner user in master DB
+    const user = await User.create({
+      name: businessName,
+      email: ownerEmail,
+      passwordHash,
+      tenantSlug: slug,
+      role: "owner",
+    });
+
+    // Ensure tenant DB connection exists
+    await getTenantConnection(slug);
+
+    // JWT token
     const token = jwt.sign(
-      { id: tenant._id, tenantSlug: slug, role: "owner" },
+      { id: user._id, email: user.email, tenant: user.tenantSlug, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
     res.json({
       success: true,
-      token,
+      message: `Tenant created: app_${slug}`,
       tenant: slug,
-      message: "Registration successful! Please proceed to payment.",
+      token,
     });
   } catch (err) {
-    console.error("❌ Registration failed:", err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ Register failed:", err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -81,69 +96,45 @@ router.post("/register", async (req, res) => {
  * POST /api/auth/login
  */
 
-router.post("/update-twilio", async (req, res) => {
-  try {
-    const { tenantSlug, accountSid, authToken, whatsappNumber, templateSid, statusCallbackUrl } = req.body;
-
-    if (!tenantSlug) return res.status(400).json({ error: "Missing tenantSlug" });
-
-    const tenant = await Tenant.findOne({ slug: tenantSlug });
-    if (!tenant) return res.status(404).json({ error: "Tenant not found" });
-
-    tenant.twilio = {
-      accountSid,
-      authToken,
-      whatsappNumber,
-      templateSid,
-      statusCallbackUrl,
-    };
-
-    tenant.active = true; // ✅ activate after Twilio setup
-    await tenant.save();
-
-    res.json({ success: true, message: "Twilio setup complete!" });
-  } catch (err) {
-    console.error("❌ Twilio update failed:", err);
-    res.status(500).json({ error: "Twilio update failed" });
-  }
-});
-
-
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // 1. Find user
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ success: false, error: "Invalid credentials" });
     }
 
-    if (!user.passwordHash) {
-      console.error("❌ User has no passwordHash:", user);
-      return res.status(500).json({ success: false, error: "User misconfigured" });
-    }
-
+    // 2. Check password
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       return res.status(400).json({ success: false, error: "Invalid credentials" });
     }
 
+    // 3. Check JWT_SECRET (important for both localhost & Render)
     if (!process.env.JWT_SECRET) {
-      console.error("❌ JWT_SECRET missing in environment!");
-      return res.status(500).json({ success: false, error: "Server misconfigured" });
+      console.error("❌ JWT_SECRET is missing! Define it in .env locally and Render env vars.");
+      return res.status(500).json({ success: false, error: "Server misconfigured (missing secret)" });
     }
 
+    // 4. Sign token
     const token = jwt.sign(
       { id: user._id, email: user.email, tenant: user.tenantSlug, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    res.json({ success: true, token, tenant: user.tenantSlug });
+    // 5. Return success
+    res.json({
+      success: true,
+      token,
+      tenant: user.tenantSlug
+    });
 
   } catch (err) {
-    console.error("❌ Login failed with error:", err);
-    res.status(500).json({ success: false, error: err.message || "Login failed" });
+    console.error("❌ Login failed:", err);
+    res.status(500).json({ success: false, error: "Login failed" });
   }
 });
 
