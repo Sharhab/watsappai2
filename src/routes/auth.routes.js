@@ -28,70 +28,86 @@ async function generateUniqueSlug(name) {
 /**
  * POST /api/auth/register
  */
+
+// ✅ Basic Registration (phase 1)
 router.post("/register", async (req, res) => {
   try {
-    const { businessName, ownerEmail, ownerPhone, password, whatsappNumber, twilio } = req.body;
+    const { businessName, ownerEmail, ownerPhone, password } = req.body;
 
-    if (!businessName || !ownerEmail || !password || !whatsappNumber) {
-      return res.status(400).json({ success: false, error: "Missing required fields" });
+    if (!businessName || !ownerEmail || !password) {
+      return res.status(400).json({ error: "Business name, email, and password are required." });
     }
 
-    // Prevent duplicate email
-    const existingUser = await User.findOne({ email: ownerEmail });
-    if (existingUser) {
-      return res.status(400).json({ success: false, error: "Email already registered" });
-    }
-
-    // Create unique tenant slug
-    const slug = await generateUniqueSlug(businessName);
-
-    // Create tenant entry
-    const tenant = await Tenant.create({
-      businessName,
-      slug,
-      whatsappNumber,
-      twilio,
-      ownerEmail,
-      ownerPhone,
-    });
+    // Check if already exists
+    const slug = `app_${toSlug(businessName)}`;
+    const existing = await Tenant.findOne({ slug });
+    if (existing) return res.status(409).json({ error: "Business already registered." });
 
     // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 10);
 
-    // Create owner user in master DB
-    const user = await User.create({
-      name: businessName,
-      email: ownerEmail,
-      passwordHash,
-      tenantSlug: slug,
-      role: "owner",
+    // Create tenant without Twilio yet
+    const tenant = await Tenant.create({
+      slug,
+      businessName,
+      ownerEmail,
+      ownerPhone,
+      password: hashed,
+      plan: "free",
+      active: false, // will activate after payment
+      twilio: {},    // empty for now
     });
 
-    // Ensure tenant DB connection exists
-    await getTenantConnection(slug);
-
-    // JWT token
+    // Create JWT token
     const token = jwt.sign(
-      { id: user._id, email: user.email, tenant: user.tenantSlug, role: user.role },
+      { id: tenant._id, tenantSlug: slug, role: "owner" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
     res.json({
       success: true,
-      message: `Tenant created: app_${slug}`,
-      tenant: slug,
       token,
+      tenant: slug,
+      message: "Registration successful! Please proceed to payment.",
     });
   } catch (err) {
-    console.error("❌ Register failed:", err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("❌ Registration failed:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
 /**
  * POST /api/auth/login
  */
+
+router.post("/update-twilio", async (req, res) => {
+  try {
+    const { tenantSlug, accountSid, authToken, whatsappNumber, templateSid, statusCallbackUrl } = req.body;
+
+    if (!tenantSlug) return res.status(400).json({ error: "Missing tenantSlug" });
+
+    const tenant = await Tenant.findOne({ slug: tenantSlug });
+    if (!tenant) return res.status(404).json({ error: "Tenant not found" });
+
+    tenant.twilio = {
+      accountSid,
+      authToken,
+      whatsappNumber,
+      templateSid,
+      statusCallbackUrl,
+    };
+
+    tenant.active = true; // ✅ activate after Twilio setup
+    await tenant.save();
+
+    res.json({ success: true, message: "Twilio setup complete!" });
+  } catch (err) {
+    console.error("❌ Twilio update failed:", err);
+    res.status(500).json({ error: "Twilio update failed" });
+  }
+});
+
 
 router.post("/login", async (req, res) => {
   try {

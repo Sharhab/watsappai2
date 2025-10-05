@@ -24,6 +24,7 @@
     "franc": "^6.2.0",
     "git-filter-repo": "^0.0.30",
     "helmet": "^8.1.0",
+    "js-sha512": "^0.9.0",
     "jsonwebtoken": "^9.0.2",
     "langs": "^2.0.0",
     "mongoose": "^8.16.4",

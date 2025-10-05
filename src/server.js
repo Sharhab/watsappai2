@@ -14,7 +14,7 @@ import qaRoutes from "./routes/qas.routes.js";
 import introRoutes from "./routes/intro.routes.js";
 import ordersRoutes from "./routes/orders.routes.js";
 import webhookRoutes from "./routes/webhook.routes.js";
-
+import paymentsRoutes from "./routes/payments.routes.js";
 import { authOptional } from "./middleware/auth.js";
 
 async function startServer() {
@@ -61,6 +61,8 @@ async function startServer() {
   app.use("/api/intro", introRoutes);
   app.use("/api/orders", ordersRoutes);
   app.use("/", webhookRoutes); // /webhook
+app.use("/api/payments", paymentsRoutes);
+
 
   const port = process.env.PORT || 3000;
   app.listen(port, () => {
