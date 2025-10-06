@@ -30,19 +30,17 @@ r.post("/webhook", withTenant, async (req, res) => {
 
   // ✅ Build Google credentials JSON from env vars
   const googleCredentials = {
-    type: process.env.type,
-    project_id: process.env.GOOGLE_PROJECT_ID,
-    private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-    private_key: process.env.GOOGLE_PRIVATE_KEY
-      ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n")
-      : undefined,
-    client_email: process.env.GOOGLE_CLIENT_EMAIL,
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    auth_uri: process.env.AUTH_URI,
-    token_uri: process.env.AUTH_TOKEN,
+    type: process.env.gcp-type,
+    project_id: process.env.gcp-project_id,
+    private_key_id: process.env.gcp-private_key_id,
+    private_key: process.env.gcp-private_key,
+    client_email: process.env.gcp-client_email,
+    client_id: process.env.gcp-client_id,
+    auth_uri: process.env.gcp-auth_uri,
+    token_uri: process.env.gcp-token_uri,
     auth_provider_x509_cert_url: process.env.gcp-auth_provider_x509_cert_url,
-    client_x509_cert_url: process.env.GOOGLE_CLIENT_X509_CERT_URL,
-    universal_domain: process.env.UNIVERSAL_DOMAIN
+    client_x509_cert_url: process.env.gcp-client_x509_cert_url,
+    universal_domain: process.env.gcp-universe_domain
   };
 
   const from = From;
