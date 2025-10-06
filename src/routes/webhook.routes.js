@@ -1,3 +1,4 @@
+// src/routes/webhook.routes.js
 import { Router } from "express";
 import Tesseract from "tesseract.js";
 import fetch from "node-fetch";
@@ -15,7 +16,7 @@ const r = Router();
  * Each tenant has its own DB + Twilio credentials
  */
 r.post("/webhook", withTenant, async (req, res) => {
-  const { To, From } = req.body;
+  const { To, From } = req.body || {}; // ✅ defensive check
   const { QA, Intro, CustomerSession, Order } = req.models;
   const tenant = req.tenant;
 
@@ -26,6 +27,23 @@ r.post("/webhook", withTenant, async (req, res) => {
   const statusCallbackUrl =
     tenant?.twilio?.statusCallbackUrl || process.env.TWILIO_STATUS_CALLBACK_URL;
   const whatsappNumber = tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
+
+  // ✅ Build Google credentials JSON from env vars
+  const googleCredentials = {
+    type: process.env.type,
+    project_id: process.env.GOOGLE_PROJECT_ID,
+    private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+    private_key: process.env.GOOGLE_PRIVATE_KEY
+      ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n")
+      : undefined,
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    auth_uri: process.env.AUTH_URI,
+    token_uri: process.env.AUTH_TOKEN,
+    auth_provider_x509_cert_url: process.env.gcp-auth_provider_x509_cert_url,
+    client_x509_cert_url: process.env.GOOGLE_CLIENT_X509_CERT_URL,
+    universal_domain: process.env.UNIVERSAL_DOMAIN
+  };
 
   const from = From;
   const numMedia = parseInt(req.body?.NumMedia || "0", 10) || 0;
@@ -58,7 +76,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       await Order.create({
         phone: from.replace("whatsapp:", ""),
         receiptUrl: permanentUrl,
-        receiptExtract: { rawText: text }, // You can still parse with extractReceiptInfo if needed
+        receiptExtract: { rawText: text },
       });
 
       console.log("✅ Order stored for", from);
@@ -66,7 +84,13 @@ r.post("/webhook", withTenant, async (req, res) => {
 
     // ---------------- AUDIO -> STT ----------------
     if (numMedia > 0 && (req.body?.MediaContentType0 || "").includes("audio")) {
-      const transcript = await transcribeAudio(req.body.MediaUrl0, twilioAccountSid, twilioAuthToken);
+      // ✅ Pass Google credentials JSON to STT function
+      const transcript = await transcribeAudio(
+        req.body.MediaUrl0,
+        twilioAccountSid,
+        twilioAuthToken,
+        googleCredentials
+      );
       incomingMsg = transcript || incomingMsg;
     }
 
