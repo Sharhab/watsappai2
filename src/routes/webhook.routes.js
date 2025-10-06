@@ -33,9 +33,7 @@ r.post("/webhook", withTenant, async (req, res) => {
   type: process.env["gcp-type"],
   project_id: process.env["gcp-project_id"],
   private_key_id: process.env["gcp-private_key_id"],
-  private_key: process.env["gcp-private_key"]
-    ? process.env["gcp-private_key"].replace(/\\n/g, "\n")
-    : undefined,
+  private_key: process.env["gcp-private_key"],
   client_email: process.env["gcp-client_email"],
   client_id: process.env["gcp-client_id"],
   auth_uri: process.env["gcp-auth_uri"],
