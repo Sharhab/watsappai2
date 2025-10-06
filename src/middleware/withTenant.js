@@ -3,40 +3,34 @@ import Tenant from "../modelsMaster/Tenant.js";
 import { getTenantConnection } from "../tenant/connection.js";
 import { createModelsForConnection } from "../tenant/modelFactory.js";
 
-/**
- * Multi-tenant middleware
- * - Detects tenant from JWT, header, or WhatsApp webhook number
- * - Falls back to env Twilio credentials if tenant not found
- * - Ensures inactive tenants cannot access
- */
 export async function withTenant(req, res, next) {
   try {
     let tenant = null;
+    let detectedFrom = "unknown";
 
-    // ✅ 1. From header (for API calls)
-    const headerTenant = req.headers["x-tenant-id"];
-
-    // ✅ 2. From JWT (authenticated requests)
+    // 1️⃣ Try JWT
     if (req.user?.tenant) {
       tenant = await Tenant.findOne({ slug: req.user.tenant });
+      if (tenant) detectedFrom = "jwt";
     }
 
-    // ✅ 3. From x-tenant-id header
-    if (!tenant && headerTenant) {
-      tenant = await Tenant.findOne({ slug: headerTenant });
+    // 2️⃣ Try header
+    if (!tenant && req.headers["x-tenant-id"]) {
+      tenant = await Tenant.findOne({ slug: req.headers["x-tenant-id"] });
+      if (tenant) detectedFrom = "header";
     }
 
-    // ✅ 4. From WhatsApp webhook payload
+    // 3️⃣ Try WhatsApp number (webhook)
     const from = req.body?.To || req.body?.From;
     if (!tenant && from) {
       const num = from.replace("whatsapp:", "").trim();
       tenant = await Tenant.findOne({ whatsappNumber: num });
+      if (tenant) detectedFrom = "whatsapp";
     }
 
-    // ✅ 5. Tenant not found → fallback to environment config
+    // 4️⃣ Fallback
     if (!tenant) {
-      console.warn("⚠️ Tenant not found — using fallback environment configuration");
-
+      console.warn("⚠️ Tenant not found — using fallback env Twilio config");
       tenant = {
         slug: "default_env_tenant",
         isActive: true,
@@ -48,26 +42,39 @@ export async function withTenant(req, res, next) {
           statusCallbackUrl: process.env.TWILIO_STATUS_CALLBACK || "",
         },
       };
+      detectedFrom = "env-fallback";
     }
 
-    // ✅ 6. Block inactive tenants
+    // 5️⃣ Inactive tenant block
     if (tenant && tenant.isActive === false) {
       return res.status(403).json({
         error: "Account inactive. Please complete your payment first.",
       });
     }
 
-    // ✅ 7. Connect to tenant DB (safe even for fallback)
+    // 6️⃣ Connect to tenant DB
     const conn = await getTenantConnection(tenant.slug);
+
+    if (!conn) {
+      console.error("❌ No DB connection established for tenant:", tenant.slug);
+      return res.status(500).json({
+        error: "Tenant DB connection failed",
+        tenant: tenant.slug,
+      });
+    }
+
     req.models = createModelsForConnection(conn);
     req.tenant = tenant;
 
+    console.log(`✅ Tenant resolved from ${detectedFrom}: ${tenant.slug}`);
     next();
   } catch (err) {
     console.error("❌ withTenant error:", err);
-    return res.status(500).json({
-      error: "Failed to establish tenant context",
-      details: err.message,
-    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Failed to establish tenant context",
+        details: err.message,
+      });
+    }
   }
 }
