@@ -1,4 +1,3 @@
-// src/routes/webhook.routes.js
 import { Router } from "express";
 import Tesseract from "tesseract.js";
 import fetch from "node-fetch";
@@ -20,6 +19,14 @@ r.post("/webhook", withTenant, async (req, res) => {
   const { QA, Intro, CustomerSession, Order } = req.models;
   const tenant = req.tenant;
 
+  // ✅ Fallbacks for Twilio credentials (if not set in DB)
+  const twilioAccountSid = tenant?.twilio?.accountSid || process.env.TWILIO_ACCOUNT_SID;
+  const twilioAuthToken = tenant?.twilio?.authToken || process.env.TWILIO_AUTH_TOKEN;
+  const templateSid = tenant?.twilio?.templateSid || process.env.TWILIO_TEMPLATE_SID;
+  const statusCallbackUrl =
+    tenant?.twilio?.statusCallbackUrl || process.env.TWILIO_STATUS_CALLBACK_URL;
+  const whatsappNumber = tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
+
   const from = From;
   const numMedia = parseInt(req.body?.NumMedia || "0", 10) || 0;
   let incomingMsg = req.body?.Body || "";
@@ -38,10 +45,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       const response = await fetch(mediaUrl, {
         headers: {
           Authorization:
-            "Basic " +
-            Buffer.from(
-              `${tenant.twilio.accountSid}:${tenant.twilio.authToken}`
-            ).toString("base64"),
+            "Basic " + Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64"),
         },
       });
       const buffer = Buffer.from(await response.arrayBuffer());
@@ -61,15 +65,8 @@ r.post("/webhook", withTenant, async (req, res) => {
     }
 
     // ---------------- AUDIO -> STT ----------------
-    if (
-      numMedia > 0 &&
-      (req.body?.MediaContentType0 || "").includes("audio")
-    ) {
-      const transcript = await transcribeAudio(
-        req.body.MediaUrl0,
-        tenant.twilio.accountSid,
-        tenant.twilio.authToken
-      );
+    if (numMedia > 0 && (req.body?.MediaContentType0 || "").includes("audio")) {
+      const transcript = await transcribeAudio(req.body.MediaUrl0, twilioAccountSid, twilioAuthToken);
       incomingMsg = transcript || incomingMsg;
     }
 
@@ -95,9 +92,9 @@ r.post("/webhook", withTenant, async (req, res) => {
       await session.save();
     }
 
-    const fromWhatsApp = `whatsapp:${tenant.whatsappNumber}`;
-    const tplSid = tenant.twilio?.templateSid;
-    const statusCallback = tenant.twilio?.statusCallbackUrl;
+    const fromWhatsApp = `whatsapp:${whatsappNumber}`;
+    const tplSid = templateSid;
+    const statusCallback = statusCallbackUrl;
 
     // ---------------- FIRST CONTACT (intro flow) ----------------
     if (!session.hasReceivedWelcome) {
