@@ -1,50 +1,73 @@
 // src/middleware/withTenant.js
+import Tenant from "../modelsMaster/Tenant.js";
 import { getTenantConnection } from "../tenant/connection.js";
 import { createModelsForConnection } from "../tenant/modelFactory.js";
-import Tenant from "../modelsMaster/Tenant.js";
 
+/**
+ * Multi-tenant middleware
+ * - Detects tenant from JWT, header, or WhatsApp webhook number
+ * - Falls back to env Twilio credentials if tenant not found
+ * - Ensures inactive tenants cannot access
+ */
 export async function withTenant(req, res, next) {
   try {
-    let tenantSlug = null;
+    let tenant = null;
 
-    // ✅ Prefer tenantSlug from JWT (support both old + new field names)
-    if (req.user?.tenantSlug) {
-      tenantSlug = req.user.tenantSlug;
-    } else if (req.user?.tenant) {
-      tenantSlug = req.user.tenant;
+    // ✅ 1. From header (for API calls)
+    const headerTenant = req.headers["x-tenant-id"];
+
+    // ✅ 2. From JWT (authenticated requests)
+    if (req.user?.tenant) {
+      tenant = await Tenant.findOne({ slug: req.user.tenant });
     }
 
-    // ✅ If missing, try resolve by header (admin tools / frontend fetch)
-    if (!tenantSlug && req.headers["x-tenant-id"]) {
-      tenantSlug = req.headers["x-tenant-id"];
+    // ✅ 3. From x-tenant-id header
+    if (!tenant && headerTenant) {
+      tenant = await Tenant.findOne({ slug: headerTenant });
     }
 
-    // ✅ If still missing, resolve by WhatsApp number (incoming webhook)
-    if (!tenantSlug && req.body?.To) {
-      const tenantDoc = await Tenant.findOne({ whatsappNumber: req.body.To }).lean();
-      if (tenantDoc) {
-        tenantSlug = tenantDoc.slug;
-        req.tenant = tenantDoc;
-      }
+    // ✅ 4. From WhatsApp webhook payload
+    const from = req.body?.To || req.body?.From;
+    if (!tenant && from) {
+      const num = from.replace("whatsapp:", "").trim();
+      tenant = await Tenant.findOne({ whatsappNumber: num });
     }
 
-    if (!tenantSlug) {
-      console.error("❌ Missing tenant context for request");
-      return res.status(400).json({ error: "Missing tenant context" });
+    // ✅ 5. Tenant not found → fallback to environment config
+    if (!tenant) {
+      console.warn("⚠️ Tenant not found — using fallback environment configuration");
+
+      tenant = {
+        slug: "default_env_tenant",
+        isActive: true,
+        whatsappNumber: process.env.TWILIO_WHATSAPP_NUMBER || "",
+        twilio: {
+          accountSid: process.env.TWILIO_ACCOUNT_SID || "",
+          authToken: process.env.TWILIO_AUTH_TOKEN || "",
+          templateSid: process.env.TWILIO_TEMPLATE_SID || "",
+          statusCallbackUrl: process.env.TWILIO_STATUS_CALLBACK || "",
+        },
+      };
     }
 
-    // ✅ Connect to tenant DB
-    const conn = await getTenantConnection(tenantSlug);
+    // ✅ 6. Block inactive tenants
+    if (tenant && tenant.isActive === false) {
+      return res.status(403).json({
+        error: "Account inactive. Please complete your payment first.",
+      });
+    }
+
+    // ✅ 7. Connect to tenant DB (safe even for fallback)
+    const conn = await getTenantConnection(tenant.slug);
     req.models = createModelsForConnection(conn);
-    req.tenantSlug = tenantSlug;
-
-    if (!req.tenant) {
-      req.tenant = await Tenant.findOne({ slug: tenantSlug }).lean();
-    }
+    req.tenant = tenant;
 
     next();
   } catch (err) {
     console.error("❌ withTenant error:", err);
-    res.status(500).json({ error: "Tenant resolution failed", details: err.message });
+    return res.status(500).json({
+      error: "Failed to establish tenant context",
+      details: err.message,
+    });
   }
 }
