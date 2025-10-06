@@ -34,7 +34,7 @@ r.post("/webhook", withTenant, async (req, res) => {
   project_id: process.env["gcp-project_id"],
   private_key_id: process.env["gcp-private_key_id"],
   private_key: process.env["gcp-private_key"],
-  client_email: process.env["gcp-client_email"],
+  client_email: process.env.CLIENT_EMAIL,
   client_id: process.env["gcp-client_id"],
   auth_uri: process.env["gcp-auth_uri"],
   token_uri: process.env["gcp-token_uri"],
