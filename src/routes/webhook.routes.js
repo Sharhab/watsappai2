@@ -33,8 +33,10 @@ r.post("/webhook", withTenant, async (req, res) => {
   type: process.env["gcp-type"],
   project_id: process.env["gcp-project_id"],
   private_key_id: process.env["gcp-private_key_id"],
-  private_key: process.env["gcp-private_key"],
-  client_email: process.env.CLIENT_EMAIL,
+  private_key: process.env["gcp-private_key"]
+    ? process.env["gcp-private_key"].replace(/\\n/g, "\n")
+    : undefined,
+  client_email: process.env["gcp-client_email"],
   client_id: process.env["gcp-client_id"],
   auth_uri: process.env["gcp-auth_uri"],
   token_uri: process.env["gcp-token_uri"],
@@ -42,6 +44,13 @@ r.post("/webhook", withTenant, async (req, res) => {
   client_x509_cert_url: process.env["gcp-client_x509_cert_url"],
   universe_domain: process.env["gcp-universe_domain"],
 };
+
+// ✅ Debug check (runs only once on startup)
+if (!googleCredentials.client_email) {
+  console.warn("⚠️ Missing `gcp-client_email` in environment variables — Google STT will fail");
+} else {
+  console.log("✅ Google credentials loaded for:", googleCredentials.client_email);
+}
 
 
   const from = From;
