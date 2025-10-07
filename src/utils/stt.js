@@ -6,23 +6,36 @@ import { exec } from "child_process";
 import speech from "@google-cloud/speech";
 import { GoogleAuth } from "google-auth-library";
 
-// Load Google credentials from env (same as before)
+/**
+ * ✅ Load Google credentials from environment
+ * Supports both GCP_* and raw keys for compatibility.
+ */
 function loadGoogleCredentials() {
-  return {
-    type: process.env["type"],
-    project_id: process.env["project_id"],
-    private_key_id: process.env["private_key_id"],
-    private_key: process.env["private_key"]?.replace(/\\n/g, "\n"),
-    client_email: process.env["client_email"],
-    client_id: process.env["client_id"],
-    auth_uri: process.env["auth_uri"],
-    token_uri: process.env["token_uri"],
-    auth_provider_x509_cert_url: process.env["auth_provider_x509_cert_url"],
-    client_x509_cert_url: process.env["client_x509_cert_url"],
-    universe_domain: process.env["universe_domain"],
+  const creds = {
+    type: process.env.GCP_TYPE || process.env["type"],
+    project_id: process.env.GCP_PROJECT_ID || process.env["project_id"],
+    private_key_id: process.env.GCP_PRIVATE_KEY_ID || process.env["private_key_id"],
+    private_key: (process.env.GCP_PRIVATE_KEY || process.env["private_key"])?.replace(/\\n/g, "\n"),
+    client_email: process.env.GCP_CLIENT_EMAIL || process.env["client_email"],
+    client_id: process.env.GCP_CLIENT_ID || process.env["client_id"],
+    auth_uri: process.env.GCP_AUTH_URI || process.env["auth_uri"],
+    token_uri: process.env.GCP_TOKEN_URI || process.env["token_uri"],
+    auth_provider_x509_cert_url:
+      process.env.GCP_AUTH_PROVIDER_X509_CERT_URL || process.env["auth_provider_x509_cert_url"],
+    client_x509_cert_url:
+      process.env.GCP_CLIENT_X509_CERT_URL || process.env["client_x509_cert_url"],
+    universe_domain: process.env.GCP_UNIVERSE_DOMAIN || process.env["universe_domain"],
   };
+
+  // 🔎 Log for verification
+  console.log("GCP client_email loaded:", creds.client_email || "(undefined)");
+  if (!creds.client_email || !creds.private_key) {
+    console.warn("⚠️ Incomplete Google credentials — STT may fail");
+  }
+  return creds;
 }
 
+// ✅ Prepare authenticated Google Speech client
 const googleAuth = new GoogleAuth({
   credentials: loadGoogleCredentials(),
   scopes: ["https://www.googleapis.com/auth/cloud-platform"],
@@ -30,10 +43,7 @@ const googleAuth = new GoogleAuth({
 const googleClient = new speech.SpeechClient({ auth: googleAuth });
 
 /**
- * Download audio from Twilio CDN, convert to WAV, run Google STT.
- * @param {string} mediaUrl - Twilio media URL
- * @param {string} accountSid - Twilio SID (for auth)
- * @param {string} authToken - Twilio token (for auth)
+ * 🎙 Download Twilio audio, convert to WAV, and transcribe via Google STT
  */
 export async function transcribeAudio(mediaUrl, accountSid, authToken) {
   const oggPath = path.resolve("./voice.ogg");
@@ -45,6 +55,7 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
       return null;
     }
 
+    // Download
     console.log("⬇️  Downloading audio from Twilio CDN...");
     const writer = fs.createWriteStream(oggPath);
     const response = await axios({
@@ -61,6 +72,7 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
     });
     console.log("✅ Audio downloaded ->", oggPath);
 
+    // Convert
     console.log("🎛  Converting to WAV (16k mono)...");
     await new Promise((resolve, reject) => {
       exec(`ffmpeg -y -i "${oggPath}" -ar 16000 -ac 1 -f wav "${wavPath}"`, (err) => {
@@ -70,15 +82,15 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
     });
     console.log("✅ Converted ->", wavPath);
 
+    // Prepare STT request
     const audioBytes = fs.readFileSync(wavPath).toString("base64");
-
     const request = {
       audio: { content: audioBytes },
       config: {
         encoding: "LINEAR16",
         sampleRateHertz: 16000,
-        languageCode: "ha-NG", // Hausa primary
-        alternativeLanguageCodes: ["en-US"], // fallback
+        languageCode: "ha-NG",
+        alternativeLanguageCodes: ["en-US"],
         enableAutomaticPunctuation: true,
       },
     };
