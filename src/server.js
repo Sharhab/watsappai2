@@ -43,7 +43,7 @@ async function startServer() {
 
   // ✅ Master DB (tenants + users)
   try {
-    console.log("GCP client email env:", process.env["gcp-client_email"]);
+    console.log("GCP client email env:", process.env.GCP_CLIENT_EMAIL);
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 10000,
     });
