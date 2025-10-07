@@ -121,7 +121,10 @@ r.post("/webhook", withTenant, async (req, res) => {
         await session.save();
       }
 
-      const fromWhatsApp = `whatsapp:${whatsappNumber}`;
+      const fromWhatsApp = whatsappNumber.startsWith("whatsapp:")
+  ? whatsappNumber
+  : `whatsapp:${whatsappNumber}`;
+
       const tplSid = templateSid;
       const statusCallback = statusCallbackUrl;
 
