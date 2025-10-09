@@ -6,6 +6,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import mongoose from "mongoose";
+import conversationsRoutes from "./routes/conversations.routes.js";
 
 import statusRoutes from "./routes/status.routes.js";
 import authRoutes from "./routes/auth.routes.js";
@@ -65,6 +66,7 @@ async function startServer() {
   app.use("/api/orders", ordersRoutes);
   app.use("/", webhookRoutes); // /webhook
 app.use("/api/payments", paymentsRoutes);
+app.use("/api/conversations", conversationsRoutes);
 
 
   const port = process.env.PORT || 3000;

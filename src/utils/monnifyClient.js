@@ -11,6 +11,7 @@ async function getAuthToken() {
   const apiKey = process.env.MONNIFY_API_KEY;
   const secretKey = process.env.MONNIFY_SECRET_KEY;
 
+
   if (!apiKey || !secretKey) {
     throw new Error("Missing MONNIFY_API_KEY or MONNIFY_SECRET_KEY in environment");
   }
