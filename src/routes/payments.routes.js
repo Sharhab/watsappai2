@@ -8,6 +8,7 @@ const r = express.Router();
 
 /**
  * 🔰 Initiate a payment — transfer or card
+ * Works with Paystack Titan under the hood
  */
 r.post("/initiate", async (req, res) => {
   try {
@@ -26,8 +27,10 @@ r.post("/initiate", async (req, res) => {
 
     let result;
     if (method === "transfer") {
+      // 🏦 Titan virtual account (Paystack dedicated account)
       result = await createReservedAccount(user, plan);
     } else if (method === "card") {
+      // 💳 Paystack checkout URL
       result = await initializeCardPayment(user, plan);
     } else {
       return res.status(400).json({ error: "Invalid payment method" });
@@ -41,39 +44,41 @@ r.post("/initiate", async (req, res) => {
 });
 
 /**
- * 🔔 Webhook: Monnify sends payment notifications here
+ * 🔔 Webhook: Paystack sends payment notifications here
  * Activates tenant automatically after successful payment
  */
-r.post("/webhook", express.json(), async (req, res) => {
+r.post("/webhook", express.json({ verify: rawBodySaver }), async (req, res) => {
   try {
-    const rawBody = JSON.stringify(req.body);
-    const receivedSig = req.headers["monnify-signature"];
+    const secret = process.env.PAYSTACK_SECRET_KEY;
+    const receivedSig = req.headers["x-paystack-signature"];
+
+    // 🔐 Verify Paystack HMAC signature
     const computedSig = crypto
-      .createHmac("sha512", process.env.MONNIFY_SECRET_KEY)
-      .update(rawBody)
+      .createHmac("sha512", secret)
+      .update(JSON.stringify(req.body))
       .digest("hex");
 
     if (receivedSig !== computedSig) {
-      console.warn("⚠️ Invalid Monnify signature — webhook rejected");
+      console.warn("⚠️ Invalid Paystack signature — webhook rejected");
       return res.status(401).send("Invalid signature");
     }
 
-    const event = req.body?.eventType;
-    const data = req.body?.eventData;
+    const event = req.body?.event;
+    const data = req.body?.data;
 
     if (!event || !data) {
       console.warn("⚠️ Malformed webhook payload");
       return res.status(400).json({ error: "Invalid payload" });
     }
 
-    // ✅ Payment successful
-    if (event === "SUCCESSFUL_TRANSACTION") {
+    // ✅ Handle successful payment
+    if (event === "charge.success" || event === "transfer.success") {
       const customerEmail = data?.customer?.email;
-      const paymentRef = data?.transactionReference;
-      const method = data?.paymentMethod;
+      const paymentRef = data?.reference;
+      const method = data?.channel || "card";
 
       if (!customerEmail) {
-        console.warn("⚠️ No customer email provided in webhook");
+        console.warn("⚠️ No customer email in Paystack webhook");
         return res.sendStatus(200);
       }
 
@@ -87,18 +92,37 @@ r.post("/webhook", express.json(), async (req, res) => {
       tenant.paymentStatus = "paid";
       tenant.isActive = true;
       tenant.paymentRef = paymentRef;
-      tenant.paymentMethod = method || "card";
+      tenant.paymentMethod = method;
       tenant.plan = tenant.plan || "basic";
 
       await tenant.save();
       console.log(`✅ Tenant activated after payment: ${tenant.businessName}`);
     }
 
+    // ⚠️ Handle failed or abandoned payments
+    if (event === "charge.failed") {
+      const customerEmail = req.body?.data?.customer?.email;
+      if (customerEmail) {
+        const tenant = await Tenant.findOne({ ownerEmail: customerEmail });
+        if (tenant) {
+          tenant.paymentStatus = "failed";
+          tenant.isActive = false;
+          await tenant.save();
+          console.log(`⚠️ Payment failed for tenant: ${tenant.businessName}`);
+        }
+      }
+    }
+
     res.sendStatus(200);
   } catch (err) {
-    console.error("❌ Monnify Webhook Error:", err);
+    console.error("❌ Paystack Webhook Error:", err);
     res.status(500).json({ error: "Webhook processing failed", details: err.message });
   }
 });
+
+// Helper: store raw body for signature verification
+function rawBodySaver(req, res, buf) {
+  if (buf && buf.length) req.rawBody = buf.toString("utf8");
+}
 
 export default r;

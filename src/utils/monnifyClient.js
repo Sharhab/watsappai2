@@ -1,101 +1,116 @@
 // src/utils/monnifyClient.js
 import axios from "axios";
-import { sha512 } from "js-sha512"; // ✅ only one import needed
+import crypto from "crypto";
 
-const MONNIFY_BASE = process.env.MONNIFY_BASE_URL || "https://sandbox.monnify.com/api/v1";
+// ✅ Paystack (Titan) base URL
+const PAYSTACK_BASE = process.env.PAYSTACK_BASE_URL || "https://api.paystack.co";
 
 /**
- * 🔐 Authenticate and get Monnify Bearer Token
+ * 🔐 Authenticate (Paystack uses static secret key instead of token endpoint)
  */
-async function getAuthToken() {
-  const apiKey = process.env.MONNIFY_API_KEY;
-  const secretKey = process.env.MONNIFY_SECRET_KEY;
+export async function getAuthToken() {
+  const secretKey = process.env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) throw new Error("Missing PAYSTACK_SECRET_KEY in environment");
 
-
-  if (!apiKey || !secretKey) {
-    throw new Error("Missing MONNIFY_API_KEY or MONNIFY_SECRET_KEY in environment");
-  }
-
-  const auth = Buffer.from(`${apiKey}:${secretKey}`).toString("base64");
-
-  const { data } = await axios.post(`${MONNIFY_BASE}/auth/login`, {}, {
-    headers: { Authorization: `Basic ${auth}` },
-  });
-
-  if (!data?.responseBody?.accessToken) {
-    throw new Error("Failed to obtain Monnify access token");
-  }
-
-  return data.responseBody.accessToken;
+  // For compatibility, we return the same structure Monnify used to return
+  return secretKey; // acts as Bearer token
 }
 
 /**
- * 🏦 Create Reserved Bank Account (for transfers)
+ * 🏦 Create Reserved Bank Account (Titan Virtual Account)
+ * This replaces Monnify’s reserved account endpoint.
  */
 export async function createReservedAccount(user, plan) {
   const token = await getAuthToken();
 
   const body = {
-    accountReference: `${user.email}-${Date.now()}`,
-    accountName: user.username || user.email,
-    currencyCode: "NGN",
-    contractCode: process.env.MONNIFY_CONTRACT_CODE,
-    customerEmail: user.email,
-    customerName: user.username || user.email,
-    getAllAvailableBanks: false,
-    preferredBanks: ["035", "232", "058"], // Wema, Sterling, GTBank
+    customer: {
+      email: user.email,
+      first_name: user.username || user.email.split("@")[0],
+      last_name: "Customer",
+    },
+    preferred_bank: "titan-paystack", // 👈 Paystack Titan account
+    country: "NG",
   };
 
   const { data } = await axios.post(
-    `${MONNIFY_BASE}/bank-transfer/reserved-accounts`,
+    `${PAYSTACK_BASE}/dedicated_account/assign`,
     body,
-    { headers: { Authorization: `Bearer ${token}` } }
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    }
   );
 
-  if (!data?.responseBody) {
-    throw new Error("Failed to create Monnify reserved account");
-  }
+  if (!data?.data) throw new Error("Failed to create Paystack reserved account");
 
-  return data.responseBody;
+  // Return in Monnify-compatible structure
+  return {
+    accounts: [
+      {
+        bankName: data.data.bank.name,
+        accountNumber: data.data.account_number,
+        accountName: data.data.account_name,
+      },
+    ],
+  };
 }
 
 /**
- * 💳 Initialize Card Payment (for online card payment)
+ * 💳 Initialize Card Payment (Paystack Checkout)
+ * Equivalent of Monnify “init-transaction”
  */
 export async function initializeCardPayment(user, plan) {
   const token = await getAuthToken();
 
-  const body = {
-    amount: plan.price,
-    customerName: user.username || user.email,
-    customerEmail: user.email,
-    paymentReference: `${plan.id}-${Date.now()}`,
-    paymentDescription: `${plan.name} Subscription`,
-    currencyCode: "NGN",
-    contractCode: process.env.MONNIFY_CONTRACT_CODE,
-    redirectUrl: `${process.env.FRONTEND_URL}/business-setup`,
+  const payload = {
+    email: user.email,
+    amount: Math.round(plan.price * 100), // Paystack expects amount in kobo
+    currency: "NGN",
+    reference: `${plan.id}-${Date.now()}`,
+    callback_url: `${process.env.FRONTEND_URL}/business-setup`,
+    metadata: {
+      planId: plan.id,
+      planName: plan.name,
+      userEmail: user.email,
+    },
   };
 
   const { data } = await axios.post(
-    `${MONNIFY_BASE}/merchant/transactions/init-transaction`,
-    body,
-    { headers: { Authorization: `Bearer ${token}` } }
+    `${PAYSTACK_BASE}/transaction/initialize`,
+    payload,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    }
   );
 
-  if (!data?.responseBody) {
-    throw new Error("Failed to initialize Monnify transaction");
-  }
+  if (!data?.data?.authorization_url)
+    throw new Error("Failed to initialize Paystack transaction");
 
-  return data.responseBody;
+  // Keep same shape as Monnify response
+  return {
+    checkoutUrl: data.data.authorization_url,
+    paymentReference: data.data.reference,
+  };
 }
 
 /**
- * 🧮 Generate Monnify HMAC SHA512 hash (for webhook validation)
+ * 🧮 Generate HMAC SHA512 hash (for webhook verification)
+ * Paystack uses SHA512 signature with `x-paystack-signature` header.
  */
 export function generateMonnifyHash(requestBody) {
-  const secret = process.env.MONNIFY_SECRET_KEY;
-  if (!secret) throw new Error("Missing MONNIFY_SECRET_KEY in environment");
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret) throw new Error("Missing PAYSTACK_SECRET_KEY in environment");
 
-  const hash = sha512.hmac(secret, JSON.stringify(requestBody));
+  const hash = crypto
+    .createHmac("sha512", secret)
+    .update(JSON.stringify(requestBody))
+    .digest("hex");
+
   return hash;
 }
