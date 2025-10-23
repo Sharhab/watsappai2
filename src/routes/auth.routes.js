@@ -129,7 +129,9 @@ router.post("/login", async (req, res) => {
     res.json({
       success: true,
       token,
-      tenant: user.tenantSlug
+      tenant: user.tenantSlug,
+      id: user._id,
+      email: user.email
     });
 
   } catch (err) {
