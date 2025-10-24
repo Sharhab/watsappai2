@@ -16,9 +16,9 @@ r.post("/initiate", async (req, res) => {
 
     // ✅ Available plans
     const plans = {
-      basic: { id: "basic", name: "Basic Plan", price: 3000 },
-      medium: { id: "medium", name: "Medium Plan", price: 8000 },
-      pro: { id: "pro", name: "Pro Plan", price: 30000 },
+      basic: { id: "basic", name: "Basic Plan", price: 30000 },
+      medium: { id: "medium", name: "Medium Plan", price: 55000 },
+      pro: { id: "pro", name: "Pro Plan", price: 900000 },
     };
 
     const plan = plans[planId];
