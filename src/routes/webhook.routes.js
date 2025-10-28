@@ -2,20 +2,21 @@
 import { Router } from "express";
 import Tesseract from "tesseract.js";
 import fetch from "node-fetch";
+import path from "path";
+import fs from "fs";
 import { withTenant } from "../middleware/withTenant.js";
 import uploadToCloudinary from "../utils/cloudinaryUpload.js";
 import { transcribeAudio } from "../utils/stt.js";
 import { findBestMatch } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
+import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js"; // ✅ NEW IMPORT
 
 const r = Router();
 
 /** ----------------------------
  * Utility: generic retry helper
- * -----------------------------
- * Usage: await withRetry(() => somePromise(), { retries: 3, baseDelayMs: 500 })
- */
+ * ----------------------------- */
 async function withRetry(task, { retries = 2, baseDelayMs = 600, label = "task" } = {}) {
   let lastErr;
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
@@ -27,7 +28,7 @@ async function withRetry(task, { retries = 2, baseDelayMs = 600, label = "task" 
       lastErr = err;
       console.warn(`🔁 [withRetry] ${label} failed on attempt ${attempt}:`, err?.message || err);
       if (attempt <= retries) {
-        const delay = baseDelayMs * Math.pow(2, attempt - 1); // exp backoff
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
         await new Promise((r) => setTimeout(r, delay));
       }
     }
@@ -61,16 +62,13 @@ async function headOk(url) {
  * Each tenant has its own DB + Twilio credentials
  */
 r.post("/webhook", withTenant, async (req, res) => {
-  // ✅ Respond to Twilio immediately to avoid 11200 timeout
-  res.status(200).send("OK");
+  res.status(200).send("OK"); // immediate Twilio response
 
-  // 🔄 Continue processing asynchronously
   (async () => {
-    const { To, From } = req.body || {}; // ✅ defensive check
+    const { To, From } = req.body || {};
     const { QA, Intro, CustomerSession, Order } = req.models;
     const tenant = req.tenant;
 
-    // ✅ Fallbacks for Twilio credentials (if not set in DB)
     const twilioAccountSid =
       tenant?.twilio?.accountSid || process.env.TWILIO_ACCOUNT_SID;
     const twilioAuthToken =
@@ -82,19 +80,14 @@ r.post("/webhook", withTenant, async (req, res) => {
     const whatsappNumber =
       tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
 
-    // ✅ Build Google credentials JSON from env vars
     const googleCredentials = {
       type: process.env.GCP_TYPE || process.env["gcp-type"],
       project_id: process.env.GCP_PROJECT_ID || process.env["gcp-project_id"],
       private_key_id:
         process.env.GCP_PRIVATE_KEY_ID || process.env["gcp-private_key_id"],
       private_key:
-        (process.env.GCP_PRIVATE_KEY || process.env["gcp-private_key"])?.replace(
-          /\\n/g,
-          "\n"
-        ),
-      client_email:
-        process.env.GCP_CLIENT_EMAIL || process.env["gcp-client_email"],
+        (process.env.GCP_PRIVATE_KEY || process.env["gcp-private_key"])?.replace(/\\n/g, "\n"),
+      client_email: process.env.GCP_CLIENT_EMAIL || process.env["gcp-client_email"],
       client_id: process.env.GCP_CLIENT_ID || process.env["gcp-client_id"],
       auth_uri: process.env.GCP_AUTH_URI || process.env["gcp-auth_uri"],
       token_uri: process.env.GCP_TOKEN_URI || process.env["gcp-token_uri"],
@@ -112,14 +105,12 @@ r.post("/webhook", withTenant, async (req, res) => {
     console.log("📨 Incoming WhatsApp webhook");
     console.log("To:", To, "From:", From);
     console.log("Tenant:", tenant?.slug || tenant?._id || "n/a");
-    console.log("Twilio cfg →",
-      {
-        accountSid: twilioAccountSid ? "[set]" : "[missing]",
-        templateSid: templateSid ? "[set]" : "[missing]",
-        statusCallbackUrl: statusCallbackUrl || null,
-        whatsappNumber: whatsappNumber || null,
-      }
-    );
+    console.log("Twilio cfg →", {
+      accountSid: twilioAccountSid ? "[set]" : "[missing]",
+      templateSid: templateSid ? "[set]" : "[missing]",
+      statusCallbackUrl: statusCallbackUrl || null,
+      whatsappNumber: whatsappNumber || null,
+    });
     console.log("GCP client email env:", googleCredentials.client_email);
 
     const from = From;
@@ -133,13 +124,8 @@ r.post("/webhook", withTenant, async (req, res) => {
 
     try {
       // ---------------- IMAGES -> OCR -> ORDERS ----------------
-      if (
-        numMedia &&
-        media0Url &&
-        (media0Type || "").startsWith("image/")
-      ) {
+      if (numMedia && media0Url && (media0Type || "").startsWith("image/")) {
         console.log("📥 New receipt uploaded:", media0Url);
-
         const response = await fetch(media0Url, {
           headers: {
             Authorization:
@@ -160,7 +146,6 @@ r.post("/webhook", withTenant, async (req, res) => {
           receiptUrl: permanentUrl,
           receiptExtract: { rawText: text },
         });
-
         console.log("✅ Order stored for", from);
       }
 
@@ -179,7 +164,7 @@ r.post("/webhook", withTenant, async (req, res) => {
         );
         console.log("🎤 Transcript:", safePreview(transcript));
         if (transcript) incomingMsg = transcript || incomingMsg;
-        else console.warn("⚠️ Transcription returned empty/null; falling back to text body if present.");
+        else console.warn("⚠️ Transcription returned empty/null; using Body fallback.");
       }
 
       // ---------------- SESSION LOAD/CREATE ----------------
@@ -193,7 +178,6 @@ r.post("/webhook", withTenant, async (req, res) => {
         console.log("🆕 New session created for", from);
       }
 
-      // Save customer message
       if (incomingMsg) {
         session.conversationHistory.push({
           sender: "customer",
@@ -206,7 +190,7 @@ r.post("/webhook", withTenant, async (req, res) => {
 
       const fromWhatsApp = resolveFromWhatsApp(whatsappNumber);
       if (!fromWhatsApp) {
-        console.error("❌ Missing whatsappNumber (env or tenant). Cannot send replies.");
+        console.error("❌ Missing whatsappNumber; cannot send replies.");
         return;
       }
 
@@ -215,10 +199,7 @@ r.post("/webhook", withTenant, async (req, res) => {
 
       // ---------------- FIRST CONTACT (intro flow) ----------------
       if (!session.hasReceivedWelcome) {
-        console.log("👋 Sending intro sequence…", {
-          usingTemplate: Boolean(tplSid),
-          statusCallback: statusCallback || null,
-        });
+        console.log("👋 Sending intro sequence…");
 
         if (tplSid) {
           try {
@@ -254,18 +235,44 @@ r.post("/webhook", withTenant, async (req, res) => {
               const ok = await headOk(abs);
               console.log(`🎬 (Intro ${step.type.toUpperCase()}) URL:`, abs, "reachable:", ok);
 
-              await sendWithRetry({
-                from: fromWhatsApp,
-                to: from,
-                mediaUrl: [abs],
-                ...(statusCallback ? { statusCallback } : {}),
-              });
-              console.log(`✅ (Intro ${step.type.toUpperCase()}) sent.`);
+              try {
+                // ✅ Download and re-encode large intro media before sending
+                const tmpPath = path.resolve(`./tmp_${Date.now()}_${path.basename(abs)}`);
+                const res = await fetch(abs);
+                const buf = Buffer.from(await res.arrayBuffer());
+                fs.writeFileSync(tmpPath, buf);
+                console.log("⬇️  Downloaded intro media locally:", tmpPath);
+
+                const safePath = await encodeForWhatsApp(tmpPath, step.type);
+                console.log("🎚  Encoded to WhatsApp-safe format:", safePath);
+
+                const safeBuffer = fs.readFileSync(safePath);
+                const uploaded = await uploadToCloudinary(safeBuffer, step.type, "intro_steps");
+                console.log("☁️  Uploaded encoded media:", uploaded);
+
+                await sendWithRetry({
+                  from: fromWhatsApp,
+                  to: from,
+                  mediaUrl: [uploaded],
+                  ...(statusCallback ? { statusCallback } : {}),
+                });
+                console.log(`✅ (Intro ${step.type.toUpperCase()}) sent (re-encoded).`);
+
+                fs.unlinkSync(tmpPath);
+                fs.unlinkSync(safePath);
+              } catch (encodeErr) {
+                console.warn("⚠️ Failed to re-encode or upload intro media; sending original:", encodeErr?.message);
+                await sendWithRetry({
+                  from: fromWhatsApp,
+                  to: from,
+                  mediaUrl: [abs],
+                  ...(statusCallback ? { statusCallback } : {}),
+                });
+              }
             } else {
               console.warn("⚠️ Unknown or incomplete intro step; skipping:", step);
             }
 
-            // Persist the AI message in history
             session.conversationHistory.push({
               sender: "ai",
               content: step.type === "text" ? step.content : `[${step.type}]`,
@@ -295,7 +302,6 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       if (match) {
-        // Try to log helpful info without assuming exact schema
         const matchInfo = {
           id: match?._id || match?.id || null,
           question: safePreview(match?.question || match?.q),
