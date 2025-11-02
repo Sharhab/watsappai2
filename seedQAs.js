@@ -1,89 +1,162 @@
-// seedQAs.js (ESM)
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-import QA from "./models/QA.js"; // make sure schema uses `export default`
+import { Router } from "express";
+import Tesseract from "tesseract.js";
+import fetch from "node-fetch";
+import path from "path";
+import fs from "fs";
+import { withTenant } from "../middleware/withTenant.js";
+import uploadToCloudinary from "../utils/cloudinaryUpload.js";
+import { transcribeAudio } from "../utils/stt.js";
+import { findBestMatch } from "../utils/matching.js";
+import { toAbsoluteUrl } from "../utils/media.js";
+import { sendTemplate, sendWithRetry } from "../utils/senders.js";
+import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
 
-dotenv.config();
+const r = Router();
+const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800); // FAST intro
 
-// =======================
-// Nigeria States
-// =======================
-const nigeriaStates = [
-  "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
-  "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT Abuja","Gombe",
-  "Imo","Jigawa","Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos",
-  "Nasarawa","Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers",
-  "Sokoto","Taraba","Yobe","Zamfara"
-];
+async function withRetry(task, { retries = 2, baseDelayMs = 800, label = "task" } = {}) {
+  let err;
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      return await task();
+    } catch (e) {
+      err = e;
+      if (attempt <= retries) await new Promise(r => setTimeout(r, baseDelayMs * attempt));
+    }
+  }
+  throw err;
+}
 
-const nigeriaQAs = nigeriaStates.map(state => ({
-  question: `Ni daga ${state} nake, za ku kawo min magani?`,
-  answerText: `Eh, muna kai magani ${state}. Muna da motocinmu daga Kaduna da ke zuwa ${state}, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.`,
-}));
+function safePreview(str, max = 120) {
+  if (!str) return "";
+  const s = String(str).replace(/\s+/g, " ").trim();
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
 
-// =======================
-// Niger Regions
-// =======================
-const nigerRegions = [
-  "Agadez","Diffa","Dosso","Maradi","Tahoua","Tillabéri","Zinder","Niamey"
-];
-
-const nigerQAs = nigerRegions.map(region => ({
-  question: `Ni daga ${region} nake a Nijar, za ku kawo min magani?`,
-  answerText: `Eh, muna kai magani ${region}. Muna da hanyoyi daga Najeriya zuwa ${region}, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.`,
-}));
-
-// =======================
-// Cameroon Regions & Cities
-// =======================
-const cameroonRegions = [
-  "Adamawa","Centre","East","Far North","Littoral",
-  "North","Northwest","South","Southwest","West"
-];
-
-const cameroonCities = [
-  "Yaoundé","Douala","Garoua","Ngaoundéré","Maroua",
-  "Bafoussam","Bamenda","Kumba","Buea","Ebolowa"
-];
-
-const cameroonRegionQAs = cameroonRegions.map(region => ({
-  question: `Ni daga yankin ${region} na Kamaru nake, za ku kawo min magani?`,
-  answerText: `Eh, muna kai magani ${region}. Motoci daga Najeriya suna zuwa ${region}, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.`,
-}));
-
-const cameroonCityQAs = cameroonCities.map(city => ({
-  question: `Ni daga ${city} nake, za ku kawo min magani?`,
-  answerText: `Eh, muna kai magani ${city}. Muna da hanyoyi daga Najeriya zuwa ${city}, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.`,
-}));
-
-// =======================
-// Combine All
-// =======================
-const qaData = [
-  ...nigeriaQAs,
-  ...nigerQAs,
-  ...cameroonRegionQAs,
-  ...cameroonCityQAs,
-];
-
-// =======================
-// Seeder
-// =======================
-async function seedQAs() {
+async function headOk(url) {
   try {
-    console.log("📡 Connecting to MongoDB...");
-    await mongoose.connect(process.env.MONGO_URI);
-
-    console.log(`📥 Inserting ${qaData.length} QAs...`);
-    await QA.insertMany(qaData);
-
-    console.log("✅ QAs inserted successfully.");
-  } catch (err) {
-    console.error("❌ Error inserting QAs:", err);
-  } finally {
-    await mongoose.disconnect();
+    return (await fetch(url, { method: "HEAD" })).ok;
+  } catch {
+    return false;
   }
 }
 
-console.log("🚀 Starting QA seeder...");
-seedQAs().then(() => console.log("🏁 Seeder finished."));
+r.post("/webhook", withTenant, async (req, res) => {
+  res.status(200).send("OK");
+
+  (async () => {
+    const { QA, Intro, CustomerSession, Order } = req.models;
+    const tenant = req.tenant;
+    const { From } = req.body || {};
+
+    const twilioAccountSid = tenant?.twilio?.accountSid || process.env.TWILIO_ACCOUNT_SID;
+    const twilioAuthToken = tenant?.twilio?.authToken || process.env.TWILIO_AUTH_TOKEN;
+    const templateSid = tenant?.twilio?.templateSid || process.env.TWILIO_TEMPLATE_SID;
+    const statusCallback = tenant?.twilio?.statusCallbackUrl || process.env.TWILIO_STATUS_CALLBACK_URL;
+    const whatsappNumber = tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
+    const fromWhatsApp = whatsappNumber.startsWith("whatsapp:") ? whatsappNumber : `whatsapp:${whatsappNumber}`;
+
+
+    
+    const numMedia = parseInt(req.body?.NumMedia || "0", 10);
+    const mediaType = req.body?.MediaContentType0 || "";
+    const mediaUrl = req.body?.MediaUrl0;
+    let incomingMsg = req.body?.Body || "";
+
+    try {
+      // ---------------- RECEIPT IMAGE OCR ----------------
+      if (numMedia && mediaType.startsWith("image/")) {
+        const response = await fetch(mediaUrl, {
+          headers: { Authorization: "Basic " + Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64") }
+        });
+        const buffer = Buffer.from(await response.arrayBuffer());
+        const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
+
+        const { data: { text }} = await Tesseract.recognize(uploaded, "eng");
+        await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
+      }
+
+      // ---------------- AUDIO → TRANSCRIBE ----------------
+      if (numMedia && mediaType.includes("audio")) {
+        const transcript = await withRetry(() => transcribeAudio(mediaUrl, twilioAccountSid, twilioAuthToken), { label: "STT" });
+        if (transcript) incomingMsg = transcript;
+      }
+
+      // ---------------- SESSION ----------------
+      let session = await CustomerSession.findOne({ phoneNumber: From });
+      if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
+
+      if (incomingMsg.trim()) {
+        session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
+        await session.save();
+      }
+
+      // ---------------- INTRO SEQUENCE ----------------
+      if (!session.hasReceivedWelcome) {
+        if (templateSid) await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+
+        const intro = await Intro.findOne();
+        if (intro?.sequence) {
+          for (const step of intro.sequence) {
+            if (step.type === "text") {
+              await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
+
+            } else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
+              const abs = toAbsoluteUrl(step.fileUrl);
+              const tmp = `./tmp_${Date.now()}.${step.type === "audio" ? "mp3" : "mp4"}`;
+
+              try {
+                const res = await fetch(abs);
+                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+                const encoded = await encodeForWhatsApp(tmp, step.type);
+                const uploaded = await uploadToCloudinary(fs.readFileSync(encoded), step.type, "intro_steps");
+
+                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [uploaded], ...(statusCallback ? { statusCallback } : {}) });
+                fs.unlinkSync(tmp); fs.unlinkSync(encoded);
+              } catch {
+                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [abs], ...(statusCallback ? { statusCallback } : {}) });
+              }
+            }
+
+            session.conversationHistory.push({ sender: "ai", content: step.content || `[media]`, type: step.type, timestamp: new Date() });
+            await session.save();
+            await new Promise(r => setTimeout(r, INTRO_DELAY));
+          }
+        }
+
+        session.hasReceivedWelcome = true;
+        await session.save();
+        return;
+      }
+
+      // ---------------- QA MATCHING ----------------
+      const match = incomingMsg ? await findBestMatch(QA, incomingMsg) : null;
+
+      if (match) {
+        // ✅ Send AUDIO FIRST
+        if (match.answerAudio) {
+          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerAudio] });
+          return;
+        }
+
+        // ✅ Then VIDEO
+        if (match.answerVideo) {
+          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerVideo] });
+          return;
+        }
+
+        // ✅ Then TEXT
+        await sendWithRetry({ from: fromWhatsApp, to: From, body: match.answerText || "Mun gane tambayarka." });
+        return;
+      }
+
+      // ---------------- FALLBACK ----------------
+      await sendWithRetry({ from: fromWhatsApp, to: From, body: "Ba mu gane tambayarka ba sosai. Don Allah ka bayyana." });
+
+    } catch (err) {
+      console.error("❌ Webhook error:", err);
+    }
+  })();
+});
+
+export default r;
