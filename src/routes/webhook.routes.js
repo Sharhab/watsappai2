@@ -1,4 +1,3 @@
-// src/routes/webhook.routes.js
 import { Router } from "express";
 import Tesseract from "tesseract.js";
 import fetch from "node-fetch";
@@ -10,374 +9,150 @@ import { transcribeAudio } from "../utils/stt.js";
 import { findBestMatch } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
-import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js"; // ✅ NEW IMPORT
+import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
 
 const r = Router();
+const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800); // FAST intro
 
-/** ----------------------------
- * Utility: generic retry helper
- * ----------------------------- */
-async function withRetry(task, { retries = 2, baseDelayMs = 600, label = "task" } = {}) {
-  let lastErr;
+async function withRetry(task, { retries = 2, baseDelayMs = 800, label = "task" } = {}) {
+  let err;
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
     try {
-      const res = await task();
-      if (attempt > 1) console.log(`🔁 [withRetry] ${label} succeeded on attempt ${attempt}`);
-      return res;
-    } catch (err) {
-      lastErr = err;
-      console.warn(`🔁 [withRetry] ${label} failed on attempt ${attempt}:`, err?.message || err);
-      if (attempt <= retries) {
-        const delay = baseDelayMs * Math.pow(2, attempt - 1);
-        await new Promise((r) => setTimeout(r, delay));
-      }
+      return await task();
+    } catch (e) {
+      err = e;
+      if (attempt <= retries) await new Promise(r => setTimeout(r, baseDelayMs * attempt));
     }
   }
-  console.error(`❌ [withRetry] ${label} ultimately failed after ${retries + 1} attempts`);
-  throw lastErr;
+  throw err;
 }
 
 function safePreview(str, max = 120) {
   if (!str) return "";
-  const oneLine = String(str).replace(/\s+/g, " ").trim();
-  return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
-}
-
-function resolveFromWhatsApp(whatsappNumber) {
-  if (!whatsappNumber) return null;
-  return whatsappNumber.startsWith("whatsapp:") ? whatsappNumber : `whatsapp:${whatsappNumber}`;
+  const s = String(str).replace(/\s+/g, " ").trim();
+  return s.length > max ? s.slice(0, max) + "…" : s;
 }
 
 async function headOk(url) {
   try {
-    const res = await fetch(url, { method: "HEAD" });
-    return res.ok;
+    return (await fetch(url, { method: "HEAD" })).ok;
   } catch {
     return false;
   }
 }
 
-/**
- * WhatsApp Webhook (multi-tenant aware)
- * Each tenant has its own DB + Twilio credentials
- */
 r.post("/webhook", withTenant, async (req, res) => {
-  res.status(200).send("OK"); // immediate Twilio response
+  res.status(200).send("OK");
 
   (async () => {
-    const { To, From } = req.body || {};
     const { QA, Intro, CustomerSession, Order } = req.models;
     const tenant = req.tenant;
+    const { From } = req.body || {};
 
-    const twilioAccountSid =
-      tenant?.twilio?.accountSid || process.env.TWILIO_ACCOUNT_SID;
-    const twilioAuthToken =
-      tenant?.twilio?.authToken || process.env.TWILIO_AUTH_TOKEN;
-    const templateSid =
-      tenant?.twilio?.templateSid || process.env.TWILIO_TEMPLATE_SID;
-    const statusCallbackUrl =
-      tenant?.twilio?.statusCallbackUrl || process.env.TWILIO_STATUS_CALLBACK_URL;
-    const whatsappNumber =
-      tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
+    const twilioAccountSid = tenant?.twilio?.accountSid || process.env.TWILIO_ACCOUNT_SID;
+    const twilioAuthToken = tenant?.twilio?.authToken || process.env.TWILIO_AUTH_TOKEN;
+    const templateSid = tenant?.twilio?.templateSid || process.env.TWILIO_TEMPLATE_SID;
+    const statusCallback = tenant?.twilio?.statusCallbackUrl || process.env.TWILIO_STATUS_CALLBACK_URL;
+    const whatsappNumber = tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
+    const fromWhatsApp = whatsappNumber.startsWith("whatsapp:") ? whatsappNumber : `whatsapp:${whatsappNumber}`;
 
-    const googleCredentials = {
-      type: process.env.GCP_TYPE || process.env["gcp-type"],
-      project_id: process.env.GCP_PROJECT_ID || process.env["gcp-project_id"],
-      private_key_id:
-        process.env.GCP_PRIVATE_KEY_ID || process.env["gcp-private_key_id"],
-      private_key:
-        (process.env.GCP_PRIVATE_KEY || process.env["gcp-private_key"])?.replace(/\\n/g, "\n"),
-      client_email: process.env.GCP_CLIENT_EMAIL || process.env["gcp-client_email"],
-      client_id: process.env.GCP_CLIENT_ID || process.env["gcp-client_id"],
-      auth_uri: process.env.GCP_AUTH_URI || process.env["gcp-auth_uri"],
-      token_uri: process.env.GCP_TOKEN_URI || process.env["gcp-token_uri"],
-      auth_provider_x509_cert_url:
-        process.env.GCP_AUTH_PROVIDER_X509_CERT_URL ||
-        process.env["gcp-auth_provider_x509_cert_url"],
-      client_x509_cert_url:
-        process.env.GCP_CLIENT_X509_CERT_URL ||
-        process.env["gcp-client_x509_cert_url"],
-      universe_domain:
-        process.env.GCP_UNIVERSE_DOMAIN || process.env["gcp-universe_domain"],
-    };
-
-    console.log("────────────────────────────────────────────────────────");
-    console.log("📨 Incoming WhatsApp webhook");
-    console.log("To:", To, "From:", From);
-    console.log("Tenant:", tenant?.slug || tenant?._id || "n/a");
-    console.log("Twilio cfg →", {
-      accountSid: twilioAccountSid ? "[set]" : "[missing]",
-      templateSid: templateSid ? "[set]" : "[missing]",
-      statusCallbackUrl: statusCallbackUrl || null,
-      whatsappNumber: whatsappNumber || null,
-    });
-    console.log("GCP client email env:", googleCredentials.client_email);
-
-    const from = From;
-    const numMedia = parseInt(req.body?.NumMedia || "0", 10) || 0;
-    const media0Type = req.body?.MediaContentType0 || "";
-    const media0Url = req.body?.MediaUrl0;
+    const numMedia = parseInt(req.body?.NumMedia || "0", 10);
+    const mediaType = req.body?.MediaContentType0 || "";
+    const mediaUrl = req.body?.MediaUrl0;
     let incomingMsg = req.body?.Body || "";
 
-    console.log("Body:", safePreview(incomingMsg));
-    console.log("NumMedia:", numMedia, "Media0Type:", media0Type);
-
     try {
-      // ---------------- IMAGES -> OCR -> ORDERS ----------------
-      if (numMedia && media0Url && (media0Type || "").startsWith("image/")) {
-        console.log("📥 New receipt uploaded:", media0Url);
-        const response = await fetch(media0Url, {
-          headers: {
-            Authorization:
-              "Basic " + Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64"),
-          },
+      // ---------------- RECEIPT IMAGE OCR ----------------
+      if (numMedia && mediaType.startsWith("image/")) {
+        const response = await fetch(mediaUrl, {
+          headers: { Authorization: "Basic " + Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64") }
         });
         const buffer = Buffer.from(await response.arrayBuffer());
-        const permanentUrl = await uploadToCloudinary(buffer, "image", "receipts");
-        console.log("☁️  Uploaded to Cloudinary:", permanentUrl);
+        const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
 
-        const {
-          data: { text },
-        } = await Tesseract.recognize(permanentUrl, "eng");
-        console.log("🧾 OCR extracted preview:", safePreview(text));
-
-        await Order.create({
-          phone: from?.replace("whatsapp:", ""),
-          receiptUrl: permanentUrl,
-          receiptExtract: { rawText: text },
-        });
-        console.log("✅ Order stored for", from);
+        const { data: { text }} = await Tesseract.recognize(uploaded, "eng");
+        await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
       }
 
-      // ---------------- AUDIO -> STT ----------------
-      if (numMedia > 0 && (media0Type || "").includes("audio")) {
-        console.log("🗣 Starting transcription via STT…", { media0UrlPreview: safePreview(media0Url, 80) });
-        const transcript = await withRetry(
-          () =>
-            transcribeAudio(
-              media0Url,
-              twilioAccountSid,
-              twilioAuthToken,
-              googleCredentials
-            ),
-          { retries: 2, baseDelayMs: 800, label: "transcribeAudio" }
-        );
-        console.log("🎤 Transcript:", safePreview(transcript));
-        if (transcript) incomingMsg = transcript || incomingMsg;
-        else console.warn("⚠️ Transcription returned empty/null; using Body fallback.");
+      // ---------------- AUDIO → TRANSCRIBE ----------------
+      if (numMedia && mediaType.includes("audio")) {
+        const transcript = await withRetry(() => transcribeAudio(mediaUrl, twilioAccountSid, twilioAuthToken), { label: "STT" });
+        if (transcript) incomingMsg = transcript;
       }
 
-      // ---------------- SESSION LOAD/CREATE ----------------
-      let session = await CustomerSession.findOne({ phoneNumber: from });
-      if (!session) {
-        session = await CustomerSession.create({
-          phoneNumber: from,
-          hasReceivedWelcome: false,
-          conversationHistory: [],
-        });
-        console.log("🆕 New session created for", from);
-      }
+      // ---------------- SESSION ----------------
+      let session = await CustomerSession.findOne({ phoneNumber: From });
+      if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
 
-      if (incomingMsg) {
-        session.conversationHistory.push({
-          sender: "customer",
-          content: incomingMsg,
-          type: numMedia > 0 ? (media0Type.includes("audio") ? "audio" : "media") : "text",
-          timestamp: new Date(),
-        });
+      if (incomingMsg.trim()) {
+        session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
         await session.save();
       }
 
-      const fromWhatsApp = resolveFromWhatsApp(whatsappNumber);
-      if (!fromWhatsApp) {
-        console.error("❌ Missing whatsappNumber; cannot send replies.");
-        return;
-      }
-
-      const tplSid = templateSid;
-      const statusCallback = statusCallbackUrl;
-
-      // ---------------- FIRST CONTACT (intro flow) ----------------
+      // ---------------- INTRO SEQUENCE ----------------
       if (!session.hasReceivedWelcome) {
-        console.log("👋 Sending intro sequence…");
-
-        if (tplSid) {
-          try {
-            await sendTemplate(from, fromWhatsApp, tplSid, { 1: "Friend" }, statusCallback);
-            console.log("📤 Template sent:", { to: from, templateSid: tplSid });
-            await new Promise((r) => setTimeout(r, 2500));
-          } catch (e) {
-            console.warn("⚠️ Failed to send template:", e?.message || e);
-          }
-        }
+        if (templateSid) await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
 
         const intro = await Intro.findOne();
-        if (!intro) {
-          console.warn("⚠️ No Intro document found; skipping intro sequence.");
-        } else {
-          console.log("ℹ️ Intro doc found. Steps:", intro?.sequence?.length || 0);
-
-          for (const [i, step] of (intro?.sequence || []).entries()) {
-            console.log(`➡️ Intro step #${i + 1}`, step);
-
+        if (intro?.sequence) {
+          for (const step of intro.sequence) {
             if (step.type === "text") {
-              console.log("✉️ (Intro Text) preview:", safePreview(step.content));
-              await sendWithRetry({
-                from: fromWhatsApp,
-                to: from,
-                body: step.content,
-                ...(statusCallback ? { statusCallback } : {}),
-              });
-              console.log("✅ (Intro Text) sent.");
+              await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
 
             } else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
               const abs = toAbsoluteUrl(step.fileUrl);
-              const ok = await headOk(abs);
-              console.log(`🎬 (Intro ${step.type.toUpperCase()}) URL:`, abs, "reachable:", ok);
+              const tmp = `./tmp_${Date.now()}.${step.type === "audio" ? "mp3" : "mp4"}`;
 
               try {
-                // ✅ Download and re-encode large intro media before sending
-                const tmpPath = path.resolve(`./tmp_${Date.now()}_${path.basename(abs)}`);
                 const res = await fetch(abs);
-                const buf = Buffer.from(await res.arrayBuffer());
-                fs.writeFileSync(tmpPath, buf);
-                console.log("⬇️  Downloaded intro media locally:", tmpPath);
+                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+                const encoded = await encodeForWhatsApp(tmp, step.type);
+                const uploaded = await uploadToCloudinary(fs.readFileSync(encoded), step.type, "intro_steps");
 
-                const safePath = await encodeForWhatsApp(tmpPath, step.type);
-                console.log("🎚  Encoded to WhatsApp-safe format:", safePath);
-
-                const safeBuffer = fs.readFileSync(safePath);
-                const uploaded = await uploadToCloudinary(safeBuffer, step.type, "intro_steps");
-                console.log("☁️  Uploaded encoded media:", uploaded);
-
-                await sendWithRetry({
-                  from: fromWhatsApp,
-                  to: from,
-                  mediaUrl: [uploaded],
-                  ...(statusCallback ? { statusCallback } : {}),
-                });
-                console.log(`✅ (Intro ${step.type.toUpperCase()}) sent (re-encoded).`);
-
-                fs.unlinkSync(tmpPath);
-                fs.unlinkSync(safePath);
-              } catch (encodeErr) {
-                console.warn("⚠️ Failed to re-encode or upload intro media; sending original:", encodeErr?.message);
-                await sendWithRetry({
-                  from: fromWhatsApp,
-                  to: from,
-                  mediaUrl: [abs],
-                  ...(statusCallback ? { statusCallback } : {}),
-                });
+                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [uploaded], ...(statusCallback ? { statusCallback } : {}) });
+                fs.unlinkSync(tmp); fs.unlinkSync(encoded);
+              } catch {
+                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [abs], ...(statusCallback ? { statusCallback } : {}) });
               }
-            } else {
-              console.warn("⚠️ Unknown or incomplete intro step; skipping:", step);
             }
 
-            session.conversationHistory.push({
-              sender: "ai",
-              content: step.type === "text" ? step.content : `[${step.type}]`,
-              type: step.type,
-              timestamp: new Date(),
-            });
+            session.conversationHistory.push({ sender: "ai", content: step.content || `[media]`, type: step.type, timestamp: new Date() });
             await session.save();
-
-            await new Promise((r) => setTimeout(r, 2500));
+            await new Promise(r => setTimeout(r, INTRO_DELAY));
           }
         }
 
         session.hasReceivedWelcome = true;
         await session.save();
-        console.log("✅ Intro sequence sent successfully");
         return;
       }
 
-      // ---------------- QA MATCH ----------------
-      let match = null;
-      if (incomingMsg && incomingMsg.trim()) {
-        try {
-          match = await findBestMatch(QA, incomingMsg);
-        } catch (e) {
-          console.warn("⚠️ findBestMatch failed:", e?.message || e);
-        }
-      }
+      // ---------------- QA MATCHING ----------------
+      const match = incomingMsg ? await findBestMatch(QA, incomingMsg) : null;
 
       if (match) {
-        const matchInfo = {
-          id: match?._id || match?.id || null,
-          question: safePreview(match?.question || match?.q),
-          answerPreview: safePreview(match?.answerText),
-          hasAudio: Boolean(match?.answerAudio),
-          hasVideo: Boolean(match?.answerVideo),
-        };
-        console.log("✅ Matched QA:", matchInfo);
-
-        const text =
-          match.answerText ||
-          "Mun gano tambayar ka, amma ba mu da amsa a rubuce yanzu.";
-        console.log("📤 Sending QA text reply:", safePreview(text));
-
-        await sendWithRetry({
-          from: fromWhatsApp,
-          to: from,
-          body: text,
-          ...(statusCallback ? { statusCallback } : {}),
-        });
-
-        session.conversationHistory.push({
-          sender: "ai",
-          content: text,
-          type: "text",
-          timestamp: new Date(),
-        });
-        await session.save();
-
-        if (match.answerAudio || match.answerVideo) {
-          const mediaUrl = match.answerAudio || match.answerVideo;
-          console.log("📤 Sending QA media reply:", mediaUrl);
-          await sendWithRetry({
-            from: fromWhatsApp,
-            to: from,
-            mediaUrl: [mediaUrl],
-            ...(statusCallback ? { statusCallback } : {}),
-          });
-
-          session.conversationHistory.push({
-            sender: "ai",
-            content: `[Media reply sent]`,
-            type: match.answerAudio ? "audio" : "video",
-            timestamp: new Date(),
-          });
-          await session.save();
+        // ✅ Send AUDIO FIRST
+        if (match.answerAudio) {
+          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerAudio] });
+          return;
         }
 
-        console.log("✅ Answer sent to", from);
+        // ✅ Then VIDEO
+        if (match.answerVideo) {
+          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerVideo] });
+          return;
+        }
+
+        // ✅ Then TEXT
+        await sendWithRetry({ from: fromWhatsApp, to: From, body: match.answerText || "Mun gane tambayarka." });
         return;
-      } else {
-        console.log("ℹ️ No QA match (or empty message).");
       }
 
       // ---------------- FALLBACK ----------------
-      const fallbackText = "Ba mu gane tambayarka ba sosai. Don Allah ka bayyana.";
-      console.log("📤 Sending fallback:", fallbackText);
+      await sendWithRetry({ from: fromWhatsApp, to: From, body: "Ba mu gane tambayarka ba sosai. Don Allah ka bayyana." });
 
-      await sendWithRetry({
-        from: fromWhatsApp,
-        to: from,
-        body: fallbackText,
-        ...(statusCallback ? { statusCallback } : {}),
-      });
-
-      session.conversationHistory.push({
-        sender: "ai",
-        content: fallbackText,
-        type: "text",
-        timestamp: new Date(),
-      });
-      await session.save();
-
-      console.log("⚠️ Fallback message sent to", from);
-    } catch (e) {
-      console.error("❌ Async webhook error:", e);
+    } catch (err) {
+      console.error("❌ Webhook error:", err);
     }
   })();
 });
