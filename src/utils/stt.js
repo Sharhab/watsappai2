@@ -31,7 +31,7 @@ function loadGoogleCredentials() {
   return creds;
 }
 
-// ✅ Create Google Speech Client using GoogleAuth (REQUIRED FIX)
+// ✅ Use GoogleAuth properly (fixes 401 Unauthorized issues)
 const googleAuth = new GoogleAuth({
   credentials: loadGoogleCredentials(),
   scopes: ["https://www.googleapis.com/auth/cloud-platform"],
@@ -99,12 +99,16 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
   } catch (err) {
     console.error("❌ STT ERROR:", err?.message || err);
 
-    if (err?.response?.data) {
-      console.error("📡 Google API Response:", JSON.stringify(err.response.data, null, 2));
+    // ✅ If Google returned API error details, print them
+    if (err?.response?.data?.error) {
+      console.error("📡 Google API Error:", err.response.data.error);
+      console.error("💬 Message:", err.response.data.error.message);
+      console.error("🔑 Reason:", err.response.data.error.status);
     }
 
+    // ✅ gRPC STT error details
     if (err?.details) {
-      console.error("📝 Google Details:", err.details);
+      console.error("📝 Google STT Details:", err.details);
     }
 
     return null;
