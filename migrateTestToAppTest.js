@@ -1,49 +1,31 @@
-// migrateTestToAppTest.js
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 dotenv.config();
 
 async function migrate() {
   const uri = process.env.MONGO_URI;
-  const sourceDbName = "test";
-  const targetDbName = "app_test";
+  const dbName = "test"; // ✅ only test database
 
   try {
-    const conn = await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
-    console.log("✅ Connected to MongoDB");
+    const conn = await mongoose.connect(uri, { dbName, serverSelectionTimeoutMS: 10000 });
+    console.log("✅ Connected to MongoDB:", dbName);
 
-    const source = conn.connection.useDb(sourceDbName);
-    const target = conn.connection.useDb(targetDbName);
+    const db = conn.connection.useDb(dbName);
 
-    const collections = [
-      "qas",
-      "questions",
-      "orders",
-      "intros",
-      "customersessions",
-      "conversations",
-    ];
+    // Load all `questions`
+    const questions = await db.collection("questions").find().toArray();
 
-    // General copy
-    for (const coll of collections) {
-      const docs = await source.collection(coll).find().toArray();
-      if (docs.length > 0) {
-        await target.collection(coll).insertMany(docs);
-        console.log(`✅ Copied ${docs.length} docs from ${coll}`);
-      } else {
-        console.log(`⚠️ No documents found in ${coll}`);
-      }
+    if (!questions.length) {
+      console.log("⚠️ No questions found in `questions` collection.");
+      return;
     }
 
-    // 🔁 Additional step: Copy `questions` → `qas`
-    const questionsDocs = await source.collection("questions").find().toArray();
-    if (questionsDocs.length > 0) {
-      // Optionally transform if needed (e.g., rename fields)
-      await target.collection("qas").insertMany(questionsDocs);
-      console.log(`🎯 Also copied ${questionsDocs.length} docs from questions → qas`);
-    } else {
-      console.log("⚠️ No questions found to migrate into qas");
-    }
+    // Remove _id before inserting into qas
+    const docsToInsert = questions.map(({ _id, ...rest }) => rest);
+
+    // Insert into qas
+    await db.collection("qas").insertMany(docsToInsert);
+    console.log(`🎯 Successfully copied ${docsToInsert.length} documents → qas`);
 
     console.log("🎉 Migration complete!");
     await conn.disconnect();

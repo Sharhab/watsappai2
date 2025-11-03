@@ -1,96 +1,67 @@
 import stringSimilarity from "string-similarity";
+import { HAUSA_KEYWORDS } from "./hausaKeywords.js";
 
-/**
- * Hausa & Nigerian slang normalization
- */
-const replacements = [
-  ["ina", "ni"],
-  ["ne", ""],
-  ["ko", ""],
-  ["toh", ""],
-  ["yaya", "iya"],
-  ["magani", "magani"],
-  ["ciwo", "ciwon"],
-  ["infection", "sanyi"],
-  ["toilet infection", "sanyi"],
-  ["ciwon mara", "sanyi"],
-  ["kankancewa", "karfinmaza"],
-  ["karfin maza", "karfinmaza"],
-  ["karfin namiji", "karfinmaza"],
-  ["karfi na maza", "karfinmaza"],
-  ["karfin gaba", "karfinmaza"],
-  ["alaura", "karfinmaza"],
-  ["gaba", "jiki"],
-  ["azaba", "ciwo"],
-  // Saurin inzali group
-  ["saurin inzali", "saurininzali"],
-  ["saurin kawowa", "saurininzali"],
-  ["gaggawar fitar maniyyi", "saurininzali"],
-  ["fitar maniyyi da wuri", "saurininzali"],
-];
-
-/**
- * Main meaning synonym groups
- */
-const synonymGroups = [
-  ["sanyi", "infection", "ciwon mara", "toilet infection"],
-  ["karfinmaza", "alaura", "karfin maza", "karfi na maza", "karfin namiji", "karfin gaba"],
-  ["saurininzali", "saurin inzali", "saurin kawowa", "gaggawar fitar maniyyi", "fitar maniyyi da wuri"],
-  ["ciwon jiki", "jiki", "ciwo", "gajiya"],
-];
-
-function normalizeHausa(str) {
-  let s = (str || "").toLowerCase().replace(/\s+/g, " ").trim();
-
-  replacements.forEach(([a, b]) => {
-    s = s.replace(new RegExp(`\\b${a}\\b`, "g"), b);
-  });
-
-  synonymGroups.forEach(group => {
-    const root = group[0];
-    group.forEach(word => {
-      s = s.replace(new RegExp(`\\b${word}\\b`, "g"), root);
-    });
-  });
-
-  return s;
+function normalizeText(s) {
+  return (s || "").toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
 }
 
-function tokenScore(input, target) {
-  const A = new Set(normalizeHausa(input).split(" "));
-  const B = new Set(normalizeHausa(target).split(" "));
+function expandWithSynonyms(input) {
+  const words = normalizeText(input).split(" ");
+  let boosted = input;
+
+  for (const mainKey in HAUSA_KEYWORDS) {
+    const variants = HAUSA_KEYWORDS[mainKey];
+    for (const v of variants) {
+      if (input.includes(v)) boosted += " " + mainKey;
+    }
+  }
+  return boosted;
+}
+
+function tokenOverlapScore(a, b) {
+  const A = new Set(normalizeText(a).split(" ").filter(Boolean));
+  const B = new Set(normalizeText(b).split(" ").filter(Boolean));
   if (!A.size || !B.size) return 0;
-  let match = [...A].filter(t => B.has(t)).length;
-  return match / Math.min(A.size, B.size);
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter += 1;
+  return inter / Math.min(A.size, B.size);
 }
 
 export async function findBestMatch(QA, userMsg) {
-  const input = normalizeHausa(userMsg);
-  const qs = await QA.find({ $or: [{ type: { $exists: false } }, { type: { $ne: "intro" } }] }).lean();
-  if (!qs.length) return null;
+  let input = normalizeText(userMsg || "");
+  input = expandWithSynonyms(input); // ✅ extra intelligence added
 
-  const questions = qs.map(q => ({ ...q, norm: normalizeHausa(q.question || "") }));
-  const texts = questions.map(q => q.norm);
-  const sim = stringSimilarity.findBestMatch(input, texts).ratings;
+  const questions = await QA.find({
+    $or: [
+      { type: { $exists: false } },
+      { type: { $ne: "intro" } }
+    ]
+  }).lean();
 
-  let scored = questions.map((q, i) => ({
-    q,
-    sim: sim[i].rating,
-    token: tokenScore(input, q.norm)
-  }));
+  if (!questions.length) return null;
 
-  scored = scored.map(s => ({
-    ...s,
-    final: s.sim * 0.6 + s.token * 0.4
-  })).sort((a, b) => b.final - a.final);
+  const normalizedQuestions = questions.map(q => normalizeText(q?.question || ""));
+  const ratings = stringSimilarity.findBestMatch(input, normalizedQuestions).ratings;
+
+  const scored = ratings.map((r, idx) => ({
+    idx,
+    question: questions[idx]?.question,
+    score: r.rating,
+  })).sort((a, b) => b.score - a.score);
 
   const best = scored[0];
 
-  // Strong match
-  if (best.final >= 0.50) return best.q;
+  // ✅ If strong match
+  if (best && best.score >= 0.45) return questions[best.idx];
 
-  // Good token match fallback
-  if (best.token >= 0.5) return best.q;
+  // ✅ Try token overlap (catch Hausa slang)
+  let bestOverlap = { idx: -1, score: 0 };
+  normalizedQuestions.forEach((q, idx) => {
+    const score = tokenOverlapScore(input, q);
+    if (score > bestOverlap.score) bestOverlap = { idx, score };
+  });
+
+  if (bestOverlap.idx >= 0 && bestOverlap.score >= 0.35) return questions[bestOverlap.idx];
 
   return null;
 }
