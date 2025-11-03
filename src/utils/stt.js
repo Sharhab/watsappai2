@@ -32,9 +32,13 @@ function loadGoogleCredentials() {
 }
 
 // ✅ Use GoogleAuth properly (fixes 401 Unauthorized issues)
+// ✅ Create Google Speech Client using GoogleAuth (fixes 401 Unauthorized)
 const googleAuth = new GoogleAuth({
   credentials: loadGoogleCredentials(),
-  scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+  scopes: [
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/cloud-speech"
+  ],
 });
 
 const googleClient = new speech.SpeechClient({ auth: googleAuth });
