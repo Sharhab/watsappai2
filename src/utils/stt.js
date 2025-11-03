@@ -3,28 +3,59 @@ import fs from "fs";
 import path from "path";
 import axios from "axios";
 import { exec } from "child_process";
-import { SpeechClient } from "@google-cloud/speech";
+import speech from "@google-cloud/speech";
+import { GoogleAuth } from "google-auth-library";
 
 /**
- * 🎙 Download Twilio audio → Convert → Transcribe via Google STT
- * ✅ Uses credentials PASSED from webhook (correct).
+ * ✅ Load Google credentials from environment
+ * Supports both GCP_* and raw keys for compatibility.
  */
-export async function transcribeAudio(mediaUrl, accountSid, authToken, googleCredentials) {
+function loadGoogleCredentials() {
+  const creds = {
+    type: process.env.GCP_TYPE || process.env["type"],
+    project_id: process.env.GCP_PROJECT_ID || process.env["project_id"],
+    private_key_id: process.env.GCP_PRIVATE_KEY_ID || process.env["private_key_id"],
+    private_key: (process.env.GCP_PRIVATE_KEY || process.env["private_key"])?.replace(/\\n/g, "\n"),
+    client_email: process.env.GCP_CLIENT_EMAIL || process.env["client_email"],
+    client_id: process.env.GCP_CLIENT_ID || process.env["client_id"],
+    auth_uri: process.env.GCP_AUTH_URI || process.env["auth_uri"],
+    token_uri: process.env.GCP_TOKEN_URI || process.env["token_uri"],
+    auth_provider_x509_cert_url:
+      process.env.GCP_AUTH_PROVIDER_X509_CERT_URL || process.env["auth_provider_x509_cert_url"],
+    client_x509_cert_url:
+      process.env.GCP_CLIENT_X509_CERT_URL || process.env["client_x509_cert_url"],
+    universe_domain: process.env.GCP_UNIVERSE_DOMAIN || process.env["universe_domain"],
+  };
+
+  // 🔎 Log for verification
+  console.log("GCP client_email loaded:", creds.client_email || "(undefined)");
+  if (!creds.client_email || !creds.private_key) {
+    console.warn("⚠️ Incomplete Google credentials — STT may fail");
+  }
+  return creds;
+}
+
+// ✅ Prepare authenticated Google Speech client
+const googleAuth = new GoogleAuth({
+  credentials: loadGoogleCredentials(),
+  scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+});
+const googleClient = new speech.SpeechClient({ auth: googleAuth });
+
+/**
+ * 🎙 Download Twilio audio, convert to WAV, and transcribe via Google STT
+ */
+export async function transcribeAudio(mediaUrl, accountSid, authToken) {
   const oggPath = path.resolve("./voice.ogg");
   const wavPath = path.resolve("./voice.wav");
 
   try {
-    if (!mediaUrl) return null;
-
-    // ✅ Ensure private key newlines are valid
-    if (googleCredentials?.private_key) {
-      googleCredentials.private_key = googleCredentials.private_key.replace(/\\n/g, "\n");
+    if (!mediaUrl) {
+      console.warn("⚠️ No mediaUrl provided to transcribeAudio.");
+      return null;
     }
 
-    const client = new SpeechClient({
-      credentials: googleCredentials,
-    });
-
+    // Download
     console.log("⬇️  Downloading audio from Twilio CDN...");
     const writer = fs.createWriteStream(oggPath);
     const response = await axios({
@@ -41,6 +72,7 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken, googleCre
     });
     console.log("✅ Audio downloaded ->", oggPath);
 
+    // Convert
     console.log("🎛  Converting to WAV (16k mono)...");
     await new Promise((resolve, reject) => {
       exec(`ffmpeg -y -i "${oggPath}" -ar 16000 -ac 1 -f wav "${wavPath}"`, (err) => {
@@ -50,23 +82,28 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken, googleCre
     });
     console.log("✅ Converted ->", wavPath);
 
+    // Prepare STT request
     const audioBytes = fs.readFileSync(wavPath).toString("base64");
-
-    const [result] = await client.recognize({
+    const request = {
       audio: { content: audioBytes },
       config: {
         encoding: "LINEAR16",
         sampleRateHertz: 16000,
-        languageCode: "ha-NG", // Hausa
-        alternativeLanguageCodes: ["en-US"], // fallback to English
+        languageCode: "ha-NG",
+        alternativeLanguageCodes: ["en-US"],
         enableAutomaticPunctuation: true,
       },
-    });
+    };
 
-    const text = result?.results?.[0]?.alternatives?.[0]?.transcript?.trim() || "";
-    console.log("🎤 Raw Google Transcription:", text || "(empty)");
+    console.log("🗣  Calling Google STT...");
+    const [resp] = await googleClient.recognize(request);
+    const transcription = (resp.results || [])
+      .map((r) => r.alternatives?.[0]?.transcript || "")
+      .join(" ")
+      .trim();
 
-    return text || null;
+    console.log("🎤 Raw Google Transcription:", transcription || "(empty)");
+    return transcription || null;
   } catch (err) {
     console.error("❌ Google STT failed:", err?.message || err);
     return null;
