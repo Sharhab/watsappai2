@@ -27,15 +27,6 @@ function loadGoogleCredentials() {
     universe_domain: process.env.GCP_UNIVERSE_DOMAIN || process.env["universe_domain"],
   };
 
-  // 🔥 FULL DEBUG LOG
-  console.log("────────────────────────────────────────────");
-  console.log("🔍 GOOGLE STT CREDENTIALS CHECK:");
-  console.log("client_email:", creds.client_email || "(MISSING)");
-  console.log("private_key:", creds.private_key ? "(PRESENT ✅)" : "(MISSING ❌)");
-  console.log("project_id:", creds.project_id || "(MISSING)");
-  console.log("token_uri:", creds.token_uri || "(MISSING)");
-  console.log("────────────────────────────────────────────");
-
   if (!creds.client_email || !creds.private_key) {
     console.warn("⚠️ Google credentials are incomplete — STT will fail with 401.");
   }
@@ -44,11 +35,11 @@ function loadGoogleCredentials() {
 }
 
 // ✅ Prepare authenticated Google Speech client
-const googleAuth = new GoogleAuth({
-  credentials: loadGoogleCredentials(),
-  scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+const googleClient = new speech.SpeechClient({
+  credentials: loadGoogleCredentials(), // ✅ directly pass credentials
+  projectId: process.env.GCP_PROJECT_ID,
 });
-const googleClient = new speech.SpeechClient({ auth: googleAuth });
+
 
 /**
  * 🎙 Download Twilio audio, convert to WAV, and transcribe via Google STT
