@@ -14,7 +14,7 @@ function loadGoogleCredentials() {
     type: process.env.GCP_TYPE || process.env["type"],
     project_id: process.env.GCP_PROJECT_ID || process.env["project_id"],
     private_key_id: process.env.GCP_PRIVATE_KEY_ID || process.env["private_key_id"],
-    private_key: (process.env.GCP_PRIVATE_KEY || process.env["private_key"])?.replace(/\\n/g, "\n"),
+    private_key: Buffer.from(process.env.GCP_PRIVATE_KEY_BASE64, "base64").toString("utf8"),
     client_email: process.env.GCP_CLIENT_EMAIL || process.env["client_email"],
     client_id: process.env.GCP_CLIENT_ID || process.env["client_id"],
     token_uri: "https://oauth2.googleapis.com/token",
