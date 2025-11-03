@@ -27,11 +27,19 @@ function loadGoogleCredentials() {
     universe_domain: process.env.GCP_UNIVERSE_DOMAIN || process.env["universe_domain"],
   };
 
-  // 🔎 Log for verification
-  console.log("GCP client_email loaded:", creds.client_email || "(undefined)");
+  // 🔥 FULL DEBUG LOG
+  console.log("────────────────────────────────────────────");
+  console.log("🔍 GOOGLE STT CREDENTIALS CHECK:");
+  console.log("client_email:", creds.client_email || "(MISSING)");
+  console.log("private_key:", creds.private_key ? "(PRESENT ✅)" : "(MISSING ❌)");
+  console.log("project_id:", creds.project_id || "(MISSING)");
+  console.log("token_uri:", creds.token_uri || "(MISSING)");
+  console.log("────────────────────────────────────────────");
+
   if (!creds.client_email || !creds.private_key) {
-    console.warn("⚠️ Incomplete Google credentials — STT may fail");
+    console.warn("⚠️ Google credentials are incomplete — STT will fail with 401.");
   }
+
   return creds;
 }
 
