@@ -98,6 +98,15 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
 
   } catch (err) {
     console.error("❌ STT ERROR:", err?.message || err);
+
+    if (err?.response?.data) {
+      console.error("📡 Google API Response:", JSON.stringify(err.response.data, null, 2));
+    }
+
+    if (err?.details) {
+      console.error("📝 Google Details:", err.details);
+    }
+
     return null;
   } finally {
     try { fs.unlinkSync(oggPath); } catch {}
