@@ -1,3 +1,4 @@
+// src/routes/webhook.routes.js
 import { Router } from "express";
 import Tesseract from "tesseract.js";
 import fetch from "node-fetch";
@@ -9,7 +10,7 @@ import { transcribeAudio } from "../utils/stt.js";
 import { findBestMatch } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
-import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
+// ❌ REMOVED: encodeForWhatsApp import
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800); // FAST intro
@@ -56,7 +57,6 @@ r.post("/webhook", withTenant, async (req, res) => {
     const whatsappNumber = tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
     const fromWhatsApp = whatsappNumber.startsWith("whatsapp:") ? whatsappNumber : `whatsapp:${whatsappNumber}`;
 
-   
     const googleCredentials = {
       type: process.env.GCP_TYPE || process.env["gcp-type"],
       project_id: process.env.GCP_PROJECT_ID || process.env["gcp-project_id"],
@@ -77,7 +77,7 @@ r.post("/webhook", withTenant, async (req, res) => {
     let incomingMsg = req.body?.Body || "";
 
     try {
-      // ---------------- RECEIPT IMAGE OCR ----------------
+      // ---------------- RECEIPT OCR ----------------
       if (numMedia && mediaType.startsWith("image/")) {
         const response = await fetch(mediaUrl, {
           headers: { Authorization: "Basic " + Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64") }
@@ -89,9 +89,9 @@ r.post("/webhook", withTenant, async (req, res) => {
         await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
       }
 
-      // ---------------- AUDIO → TRANSCRIBE ----------------
+      // ---------------- AUDIO → STT ----------------
       if (numMedia && mediaType.includes("audio")) {
-        const transcript = await withRetry(() => transcribeAudio(mediaUrl, twilioAccountSid, twilioAuthToken), { label: "STT" });
+        const transcript = await withRetry(() => transcribeAudio(mediaUrl, twilioAccountSid, twilioAuthToken, googleCredentials), { label: "STT" });
         if (transcript) incomingMsg = transcript;
       }
 
@@ -104,7 +104,7 @@ r.post("/webhook", withTenant, async (req, res) => {
         await session.save();
       }
 
-      // ---------------- INTRO SEQUENCE ----------------
+      // ---------------- INTRO ----------------
       if (!session.hasReceivedWelcome) {
         if (templateSid) await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
 
@@ -112,23 +112,12 @@ r.post("/webhook", withTenant, async (req, res) => {
         if (intro?.sequence) {
           for (const step of intro.sequence) {
             if (step.type === "text") {
-              await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
+              await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content });
 
             } else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
               const abs = toAbsoluteUrl(step.fileUrl);
-              const tmp = `./tmp_${Date.now()}.${step.type === "audio" ? "mp3" : "mp4"}`;
-
-              try {
-                const res = await fetch(abs);
-                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-                const encoded = await encodeForWhatsApp(tmp, step.type);
-                const uploaded = await uploadToCloudinary(fs.readFileSync(encoded), step.type, "intro_steps");
-
-                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [uploaded], ...(statusCallback ? { statusCallback } : {}) });
-                fs.unlinkSync(tmp); fs.unlinkSync(encoded);
-              } catch {
-                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [abs], ...(statusCallback ? { statusCallback } : {}) });
-              }
+              // ✅ SEND MEDIA DIRECTLY (NO ENCODING)
+              await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [abs] });
             }
 
             session.conversationHistory.push({ sender: "ai", content: step.content || `[media]`, type: step.type, timestamp: new Date() });
@@ -142,25 +131,13 @@ r.post("/webhook", withTenant, async (req, res) => {
         return;
       }
 
-      // ---------------- QA MATCHING ----------------
+      // ---------------- QA ----------------
       const match = incomingMsg ? await findBestMatch(QA, incomingMsg) : null;
 
       if (match) {
-        // ✅ Send AUDIO FIRST
-        if (match.answerAudio) {
-          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerAudio] });
-          return;
-        }
-
-        // ✅ Then VIDEO
-        if (match.answerVideo) {
-          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerVideo] });
-          return;
-        }
-
-        // ✅ Then TEXT
-        await sendWithRetry({ from: fromWhatsApp, to: From, body: match.answerText || "Mun gane tambayarka." });
-        return;
+        if (match.answerAudio) return await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerAudio] });
+        if (match.answerVideo) return await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerVideo] });
+        return await sendWithRetry({ from: fromWhatsApp, to: From, body: match.answerText || "Mun gane tambayarka." });
       }
 
       // ---------------- FALLBACK ----------------
