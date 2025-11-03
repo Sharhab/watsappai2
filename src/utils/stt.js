@@ -1,46 +1,47 @@
+// /src/utils/stt.js
 import fs from "fs";
 import path from "path";
 import axios from "axios";
 import { exec } from "child_process";
 import speech from "@google-cloud/speech";
-import { JWT } from "google-auth-library";
+import { GoogleAuth } from "google-auth-library";
 
+/**
+ * Load Google credentials exactly how they are stored in .env
+ */
 function loadGoogleCredentials() {
-  const privateKey = process.env.GCP_PRIVATE_KEY_BASE64
-    ? Buffer.from(process.env.GCP_PRIVATE_KEY_BASE64, "base64").toString("utf8")
-    : (process.env.GCP_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+  const key = (process.env.GCP_PRIVATE_KEY || process.env["private_key"])?.replace(/\\n/g, "\n");
 
-  const clientEmail = process.env.GCP_CLIENT_EMAIL;
-  const projectId = process.env.GCP_PROJECT_ID;
+  const creds = {
+    type: process.env.GCP_TYPE || process.env["type"],
+    project_id: process.env.GCP_PROJECT_ID || process.env["project_id"],
+    private_key_id: process.env.GCP_PRIVATE_KEY_ID || process.env["private_key_id"],
+    private_key: key,
+    client_email: process.env.GCP_CLIENT_EMAIL || process.env["client_email"],
+    client_id: process.env.GCP_CLIENT_ID || process.env["client_id"],
+    token_uri: process.env.GCP_TOKEN_URI || process.env["token_uri"],
+  };
 
-  console.log("🔍 GOOGLE STT CREDENTIAL CHECK:");
-  console.log("client_email:", clientEmail || "(missing)");
-  console.log("project_id:", projectId || "(missing)");
-  console.log("private_key:", privateKey ? "(loaded ✅)" : "(missing ❌)");
-  console.log("────────────────────────────────────────────");
-
-  if (!clientEmail || !privateKey || !projectId) {
-    console.error("❌ Missing Google credentials — STT will fail.");
+  if (!creds.client_email || !creds.private_key) {
+    console.warn("⚠️ Missing Google STT credentials — transcription will fail.");
+  } else {
+    console.log("✅ Google STT credentials loaded:", creds.client_email);
   }
 
-  return { clientEmail, privateKey, projectId };
+  return creds;
 }
 
-const { clientEmail, privateKey, projectId } = loadGoogleCredentials();
-
-// ✅ Create JWT Auth Client (Correct way)
-const jwtClient = new JWT({
-  email: clientEmail,
-  key: privateKey,
+// ✅ Create Google Speech Client using GoogleAuth (REQUIRED FIX)
+const googleAuth = new GoogleAuth({
+  credentials: loadGoogleCredentials(),
   scopes: ["https://www.googleapis.com/auth/cloud-platform"],
 });
 
-// ✅ Create Speech Client using JWT Auth
-const googleClient = new speech.SpeechClient({
-  projectId,
-  auth: jwtClient,
-});
+const googleClient = new speech.SpeechClient({ auth: googleAuth });
 
+/**
+ * Download Twilio audio → Convert → STT
+ */
 export async function transcribeAudio(mediaUrl, accountSid, authToken) {
   const oggPath = path.resolve("./voice.ogg");
   const wavPath = path.resolve("./voice.wav");
@@ -50,20 +51,20 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
 
     console.log("⬇️  Downloading audio from Twilio CDN...");
     const writer = fs.createWriteStream(oggPath);
-    const response = await axios({
+    const res = await axios({
       url: mediaUrl,
       method: "GET",
       responseType: "stream",
       auth: { username: accountSid, password: authToken },
     });
 
-    response.data.pipe(writer);
-    await new Promise((res, rej) => {
-      writer.on("finish", res);
-      writer.on("error", rej);
+    res.data.pipe(writer);
+    await new Promise((resolve, reject) => {
+      writer.on("finish", resolve);
+      writer.on("error", reject);
     });
 
-    console.log("🎛 Converting to WAV...");
+    console.log("🎛  Converting to WAV...");
     await new Promise((resolve, reject) => {
       exec(`ffmpeg -y -i "${oggPath}" -ar 16000 -ac 1 -f wav "${wavPath}"`, err => {
         if (err) return reject(err);
@@ -72,6 +73,7 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
     });
 
     const audioBytes = fs.readFileSync(wavPath).toString("base64");
+
     const request = {
       audio: { content: audioBytes },
       config: {
@@ -79,21 +81,23 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
         sampleRateHertz: 16000,
         languageCode: "ha-NG",
         alternativeLanguageCodes: ["en-US"],
+        enableAutomaticPunctuation: true,
       },
     };
 
-    console.log("🗣 Calling Google STT...");
+    console.log("🗣  Calling Google STT...");
     const [resp] = await googleClient.recognize(request);
-    const transcription = (resp.results || [])
+
+    const text = (resp.results || [])
       .map(r => r.alternatives?.[0]?.transcript || "")
       .join(" ")
       .trim();
 
-    console.log("🎤 STT:", transcription || "(empty)");
-    return transcription || null;
+    console.log("🎤 STT:", text || "(empty)");
+    return text || null;
 
   } catch (err) {
-    console.error("❌ Google STT failed:", err?.message || err);
+    console.error("❌ STT ERROR:", err?.message || err);
     return null;
   } finally {
     try { fs.unlinkSync(oggPath); } catch {}
