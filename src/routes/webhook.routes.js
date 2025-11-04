@@ -56,21 +56,6 @@ r.post("/webhook", withTenant, async (req, res) => {
     const whatsappNumber = tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
     const fromWhatsApp = whatsappNumber.startsWith("whatsapp:") ? whatsappNumber : `whatsapp:${whatsappNumber}`;
 
-   
-    const googleCredentials = {
-      type: process.env.GCP_TYPE || process.env["gcp-type"],
-      project_id: process.env.GCP_PROJECT_ID || process.env["gcp-project_id"],
-      private_key_id: process.env.GCP_PRIVATE_KEY_ID || process.env["gcp-private_key_id"],
-      private_key: (process.env.GCP_PRIVATE_KEY || process.env["gcp-private_key"])?.replace(/\\n/g, "\n"),
-      client_email: process.env.GCP_CLIENT_EMAIL || process.env["gcp-client_email"],
-      client_id: process.env.GCP_CLIENT_ID || process.env["gcp-client_id"],
-      auth_uri: process.env.GCP_AUTH_URI || process.env["gcp-auth_uri"],
-      token_uri: process.env.GCP_TOKEN_URI || process.env["gcp-token_uri"],
-      auth_provider_x509_cert_url: process.env.GCP_AUTH_PROVIDER_X509_CERT_URL || process.env["gcp-auth_provider_x509_cert_url"],
-      client_x509_cert_url: process.env.GCP_CLIENT_X509_CERT_URL || process.env["gcp-client_x509_cert_url"],
-      universe_domain: process.env.GCP_UNIVERSE_DOMAIN || process.env["gcp-universe_domain"],
-    };
-
     const numMedia = parseInt(req.body?.NumMedia || "0", 10);
     const mediaType = req.body?.MediaContentType0 || "";
     const mediaUrl = req.body?.MediaUrl0;
