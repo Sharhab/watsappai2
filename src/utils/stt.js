@@ -40,7 +40,7 @@ async function verifyAssemblyAIAuth(authKey) {
 }
 
 // ---- Main transcription ------------------------------------------------------
-export async function transcribeAudio(mediaUrl, accountSid, authToken) {
+export async function transcribeAudio(mediaUrl, AccountSid, AuthToken) {
   const oggPath = path.resolve("./voice.ogg");
   const wavPath = path.resolve("./voice.wav");
 
@@ -80,7 +80,7 @@ export async function transcribeAudio(mediaUrl, accountSid, authToken) {
       url: mediaUrl,
       method: "GET",
       responseType: "arraybuffer",
-      auth: { username: accountSid, password: authToken },
+      auth: { username: AccountSid, password: AuthToken },
       timeout: 30000,
     });
     fs.writeFileSync(oggPath, Buffer.from(audioRes.data));

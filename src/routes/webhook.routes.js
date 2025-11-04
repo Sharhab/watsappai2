@@ -49,8 +49,8 @@ r.post("/webhook", withTenant, async (req, res) => {
     const tenant = req.tenant;
     const { From } = req.body || {};
 
-    const twilioAccountSid = tenant?.twilio?.accountSid || process.env.TWILIO_ACCOUNT_SID;
-    const twilioAuthToken = tenant?.twilio?.authToken || process.env.TWILIO_AUTH_TOKEN;
+    const AccountSid =  process.env.TWILIO_ACCOUNT_SID;
+    const AuthToken = process.env.TWILIO_AUTH_TOKEN;
     const templateSid = tenant?.twilio?.templateSid || process.env.TWILIO_TEMPLATE_SID;
     const statusCallback = tenant?.twilio?.statusCallbackUrl || process.env.TWILIO_STATUS_CALLBACK_URL;
     const whatsappNumber = tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
@@ -76,7 +76,7 @@ r.post("/webhook", withTenant, async (req, res) => {
 
       // ---------------- AUDIO → TRANSCRIBE ----------------
       if (numMedia && mediaType.includes("audio")) {
-        const transcript = await withRetry(() => transcribeAudio(mediaUrl, twilioAccountSid, twilioAuthToken), { label: "STT" });
+        const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken), { label: "STT" });
         if (transcript) incomingMsg = transcript;
       }
 
