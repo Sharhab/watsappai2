@@ -49,9 +49,9 @@ r.post("/webhook", withTenant, async (req, res) => {
     const tenant = req.tenant;
     const { From } = req.body || {};
 
-    const twilioAccountSid = tenant?.twilio?.accountSid || process.env.TWILIO_ACCOUNT_SID;
-    const twilioAuthToken = tenant?.twilio?.authToken || process.env.TWILIO_AUTH_TOKEN;
-    const templateSid = tenant?.twilio?.templateSid || process.env.TWILIO_TEMPLATE_SID;
+    const AccountSid = process.env.TWILIO_ACCOUNT_SID;
+    const AuthToken = process.env.TWILIO_AUTH_TOKEN;
+    const templateSid = process.env.TWILIO_TEMPLATE_SID;
     const statusCallback = tenant?.twilio?.statusCallbackUrl || process.env.TWILIO_STATUS_CALLBACK_URL;
     const whatsappNumber = tenant?.whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
     const fromWhatsApp = whatsappNumber.startsWith("whatsapp:") ? whatsappNumber : `whatsapp:${whatsappNumber}`;
@@ -80,7 +80,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       // ---------------- RECEIPT IMAGE OCR ----------------
       if (numMedia && mediaType.startsWith("image/")) {
         const response = await fetch(mediaUrl, {
-          headers: { Authorization: "Basic " + Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64") }
+          headers: { Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64") }
         });
         const buffer = Buffer.from(await response.arrayBuffer());
         const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
@@ -91,7 +91,7 @@ r.post("/webhook", withTenant, async (req, res) => {
 
       // ---------------- AUDIO → TRANSCRIBE ----------------
       if (numMedia && mediaType.includes("audio")) {
-        const transcript = await withRetry(() => transcribeAudio(mediaUrl, twilioAccountSid, twilioAuthToken, googleCredentials), { label: "STT" });
+        const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken), { label: "STT" });
         if (transcript) incomingMsg = transcript;
       }
 
