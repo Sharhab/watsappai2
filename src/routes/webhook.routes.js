@@ -9,12 +9,11 @@ import { transcribeAudio } from "../utils/stt.js";
 import { findBestMatch } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
-import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
 
 const r = Router();
-const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800); // FAST intro
+const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
 
-async function withRetry(task, { retries = 2, baseDelayMs = 800, label = "task" } = {}) {
+async function withRetry(task, { retries = 2, baseDelayMs = 800 } = {}) {
   let err;
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
     try {
@@ -27,20 +26,6 @@ async function withRetry(task, { retries = 2, baseDelayMs = 800, label = "task" 
   throw err;
 }
 
-function safePreview(str, max = 120) {
-  if (!str) return "";
-  const s = String(str).replace(/\s+/g, " ").trim();
-  return s.length > max ? s.slice(0, max) + "…" : s;
-}
-
-async function headOk(url) {
-  try {
-    return (await fetch(url, { method: "HEAD" })).ok;
-  } catch {
-    return false;
-  }
-}
-
 r.post("/webhook", withTenant, async (req, res) => {
   res.status(200).send("OK");
 
@@ -49,7 +34,7 @@ r.post("/webhook", withTenant, async (req, res) => {
     const tenant = req.tenant;
     const { From } = req.body || {};
 
-    const AccountSid =  process.env.TWILIO_ACCOUNT_SID;
+    const AccountSid = process.env.TWILIO_ACCOUNT_SID;
     const AuthToken = process.env.TWILIO_AUTH_TOKEN;
     const templateSid = tenant?.twilio?.templateSid || process.env.TWILIO_TEMPLATE_SID;
     const statusCallback = tenant?.twilio?.statusCallbackUrl || process.env.TWILIO_STATUS_CALLBACK_URL;
@@ -62,61 +47,61 @@ r.post("/webhook", withTenant, async (req, res) => {
     let incomingMsg = req.body?.Body || "";
 
     try {
-      // ---------------- RECEIPT IMAGE OCR ----------------
-      if (numMedia && mediaType.startsWith("image/")) {
-        const response = await fetch(mediaUrl, {
-          headers: { Authorization: "Basic " + Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64") }
-        });
-        const buffer = Buffer.from(await response.arrayBuffer());
-        const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
-
-        const { data: { text }} = await Tesseract.recognize(uploaded, "eng");
-        await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
-      }
-
       // ---------------- AUDIO → TRANSCRIBE ----------------
       if (numMedia && mediaType.includes("audio")) {
+        console.log("🎙 Voice message detected → Calling STT...");
         const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken), { label: "STT" });
-        if (transcript) incomingMsg = transcript;
+        if (transcript) {
+          console.log("📝 TRANSCRIBED:", transcript);
+          incomingMsg = transcript;
+        }
       }
 
       // ---------------- SESSION ----------------
       let session = await CustomerSession.findOne({ phoneNumber: From });
-      if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
+      if (!session) {
+        session = await CustomerSession.create({
+          phoneNumber: From,
+          hasReceivedWelcome: false,
+          conversationHistory: []
+        });
+      }
 
       if (incomingMsg.trim()) {
-        session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
+        session.conversationHistory.push({
+          sender: "customer",
+          content: incomingMsg,
+          type: numMedia ? "voice" : "text",
+          timestamp: new Date(),
+        });
         await session.save();
       }
 
       // ---------------- INTRO SEQUENCE ----------------
       if (!session.hasReceivedWelcome) {
-        if (templateSid) await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-
+        console.log("🎬 Sending INTRO...");
+        if (templateSid) await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Sannu" }, statusCallback);
         const intro = await Intro.findOne();
+
         if (intro?.sequence) {
           for (const step of intro.sequence) {
+
             if (step.type === "text") {
-              await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
+              await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content });
 
             } else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-              const abs = toAbsoluteUrl(step.fileUrl);
-              const tmp = `./tmp_${Date.now()}.${step.type === "audio" ? "mp3" : "mp4"}`;
-
-              try {
-                const res = await fetch(abs);
-                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-                const encoded = await encodeForWhatsApp(tmp, step.type);
-                const uploaded = await uploadToCloudinary(fs.readFileSync(encoded), step.type, "intro_steps");
-
-                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [uploaded], ...(statusCallback ? { statusCallback } : {}) });
-                fs.unlinkSync(tmp); fs.unlinkSync(encoded);
-              } catch {
-                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [abs], ...(statusCallback ? { statusCallback } : {}) });
-              }
+              // ✅ DIRECT SEND — NO MMFEG ENCODING
+              const direct = toAbsoluteUrl(step.fileUrl);
+              await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [direct] });
             }
 
-            session.conversationHistory.push({ sender: "ai", content: step.content || `[media]`, type: step.type, timestamp: new Date() });
+            session.conversationHistory.push({
+              sender: "ai",
+              content: step.content || `[media]`,
+              type: step.type,
+              timestamp: new Date()
+            });
+
             await session.save();
             await new Promise(r => setTimeout(r, INTRO_DELAY));
           }
@@ -128,38 +113,33 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ---------------- QA MATCHING ----------------
-console.log("🧠 USER SAID:", incomingMsg);
-
-const match = incomingMsg ? await findBestMatch(QA, incomingMsg) : null;
-
-if (match) {
-  console.log("✅ QA MATCHED:", {
-    q: match.question,
-    hasAudio: !!match.answerAudio,
-    hasVideo: !!match.answerVideo,
-    text: match.answerText?.slice(0, 80)
-  });
+      console.log("🧠 USER SAID:", incomingMsg);
+      const match = incomingMsg ? await findBestMatch(QA, incomingMsg) : null;
 
       if (match) {
-        // ✅ Send AUDIO FIRST
+        console.log("🎯 MATCH FOUND:", {
+          question: match.question,
+          hasAudio: !!match.answerAudio,
+          hasVideo: !!match.answerVideo,
+          textPreview: match.answerText?.slice(0, 60)
+        });
+
         if (match.answerAudio) {
           await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerAudio] });
           return;
         }
 
-        // ✅ Then VIDEO
         if (match.answerVideo) {
           await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerVideo] });
           return;
         }
 
-        // ✅ Then TEXT
         await sendWithRetry({ from: fromWhatsApp, to: From, body: match.answerText || "Mun gane tambayarka." });
         return;
       }
 
-      // ---------------- FALLBACK ----------------
-      await sendWithRetry({ from: fromWhatsApp, to: From, body: "Ba mu gane tambayarka ba sosai. Don Allah ka bayyana." });
+      console.log("❌ NO MATCH FOR:", incomingMsg);
+      await sendWithRetry({ from: fromWhatsApp, to: From, body: "Ba mu gane tambayarka sosai ba. Don Allah ka sake bayani." });
 
     } catch (err) {
       console.error("❌ Webhook error:", err);
