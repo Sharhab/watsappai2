@@ -128,7 +128,17 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ---------------- QA MATCHING ----------------
-      const match = incomingMsg ? await findBestMatch(QA, incomingMsg) : null;
+console.log("🧠 USER SAID:", incomingMsg);
+
+const match = incomingMsg ? await findBestMatch(QA, incomingMsg) : null;
+
+if (match) {
+  console.log("✅ QA MATCHED:", {
+    q: match.question,
+    hasAudio: !!match.answerAudio,
+    hasVideo: !!match.answerVideo,
+    text: match.answerText?.slice(0, 80)
+  });
 
       if (match) {
         // ✅ Send AUDIO FIRST
