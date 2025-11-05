@@ -124,15 +124,26 @@ r.post("/webhook", withTenant, async (req, res) => {
           textPreview: match.answerText?.slice(0, 60)
         });
 
-        if (match.answerAudio) {
-          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerAudio] });
-          return;
-        }
+     const audioUrl = match.answerAudio || match.audio || match.audioUrl;
+if (audioUrl) {
+  console.log("🎧 Sending audio answer:", audioUrl);
+  await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [audioUrl] });
+  return;
+}
 
-        if (match.answerVideo) {
-          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerVideo] });
-          return;
-        }
+if (audioUrl) {
+  console.log("🎧 Sending audio answer:", audioUrl);
+  await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [audioUrl] });
+  return;
+}
+
+
+       if (audioUrl) {
+  console.log("🎧 Sending audio answer:", audioUrl);
+  await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [audioUrl] });
+  return;
+}
+
 
         await sendWithRetry({ from: fromWhatsApp, to: From, body: match.answerText || "Mun gane tambayarka." });
         return;
