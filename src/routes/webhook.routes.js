@@ -6,7 +6,7 @@ import fs from "fs";
 import { withTenant } from "../middleware/withTenant.js";
 import uploadToCloudinary from "../utils/cloudinaryUpload.js";
 import { transcribeAudio } from "../utils/stt.js";
-import { findBestMatch } from "../utils/matching.js";
+import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
@@ -14,28 +14,58 @@ import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
 
+// ------------ helpers ---------------
 async function withRetry(task, { retries = 2, baseDelayMs = 800 } = {}) {
   let lastErr;
   for (let i = 0; i <= retries; i++) {
     try { return await task(); } catch (err) {
       lastErr = err;
-      if (i < retries) await new Promise(r => setTimeout(r, baseDelayMs * i));
+      if (i < retries) await new Promise(r => setTimeout(r, baseDelayMs * (i + 1)));
     }
   }
   throw lastErr;
 }
 
-r.post("/webhook", withTenant, async (req, res) => {
+async function headOk(url) {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
-  // ✅ ALWAYS ACKNOWLEDGE TWILIO IMMEDIATELY
+/** Ensure Twilio-reachable media URL:
+ *  - If url is unreachable, download → re-upload to Cloudinary → return new public URL
+ */
+async function ensurePublicMedia(url, type /* 'audio' | 'video' */) {
+  const abs = toAbsoluteUrl(url);
+  const ok = await headOk(abs);
+  if (ok) return abs;
+
+  console.warn("⚠️ QA media not publicly reachable. Re-uploading to Cloudinary…", abs);
+  try {
+    const dl = await fetch(abs);
+    const buf = Buffer.from(await dl.arrayBuffer());
+    const uploaded = await uploadToCloudinary(buf, type, "qa_media");
+    console.log("☁️  Cloudinary public QA media:", uploaded);
+    return uploaded;
+  } catch (e) {
+    console.error("❌ Failed to re-upload QA media, will try raw URL anyway:", e?.message || e);
+    return abs;
+  }
+}
+
+// ------------------------------------
+
+r.post("/webhook", withTenant, async (req, res) => {
+  // Always ACK quickly to avoid Twilio retries + 12200 confusion
   try { res.status(200).send("OK"); } catch {}
 
   (async () => {
-
     const { QA, Intro, CustomerSession, Order } = req.models;
     const { From } = req.body || {};
 
-    // ✅ TWILIO CREDS FIXED
     const AccountSid = process.env.TWILIO_ACCOUNT_SID;
     const AuthToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -52,81 +82,99 @@ r.post("/webhook", withTenant, async (req, res) => {
     let incomingMsg = req.body?.Body || "";
 
     try {
-
-      // ✅ RECEIPT OCR FIX — uses correct TWILIO AUTH
+      // -------- IMAGE → OCR (receipt) ----------
       if (numMedia && mediaType.startsWith("image/")) {
         const resp = await fetch(mediaUrl, {
           headers: {
-            Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64")
-          }
+            Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64"),
+          },
         });
-
         const buffer = Buffer.from(await resp.arrayBuffer());
         const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
-
-        const { data: { text }} = await Tesseract.recognize(uploaded, "eng");
-        await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
+        const { data: { text } } = await Tesseract.recognize(uploaded, "eng");
+        await Order.create({
+          phone: From.replace("whatsapp:", ""),
+          receiptUrl: uploaded,
+          receiptExtract: { rawText: text },
+        });
       }
 
-      // ✅ AUDIO → STT
+      // -------- AUDIO → STT ----------
       if (numMedia && mediaType.includes("audio")) {
         console.log("🎙 Voice message detected → Calling STT...");
-        const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
+        const transcript = await withRetry(
+          () => transcribeAudio(mediaUrl, AccountSid, AuthToken),
+          { retries: 1, baseDelayMs: 800 }
+        );
         if (transcript) {
           incomingMsg = transcript;
           console.log("📝 TRANSCRIBED:", transcript);
         }
       }
 
-      // ✅ SESSION LOAD / CREATE
+      // -------- SESSION ----------
       let session = await CustomerSession.findOne({ phoneNumber: From });
       if (!session) {
         session = await CustomerSession.create({
           phoneNumber: From,
           hasReceivedWelcome: false,
-          conversationHistory: []
+          conversationHistory: [],
         });
       }
 
-      if (incomingMsg.trim()) {
+      if (normalizeText(incomingMsg)) {
         console.log("🧠 USER SAID:", incomingMsg);
         session.conversationHistory.push({
           sender: "customer",
           content: incomingMsg,
           type: numMedia ? "voice" : "text",
-          timestamp: new Date()
+          timestamp: new Date(),
         });
         await session.save();
       }
 
-      // ✅ INTRO LOGIC UNTOUCHED
+      // -------- INTRO (template + steps; same approach as before) ----------
       if (!session.hasReceivedWelcome) {
-        if (templateSid)
+        if (templateSid) {
           await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+        }
 
         const intro = await Intro.findOne();
-        if (intro?.sequence) {
+        if (intro?.sequence?.length) {
           for (const step of intro.sequence) {
             if (step.type === "text") {
-              await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content });
+              await sendWithRetry({
+                from: fromWhatsApp, to: From, body: step.content,
+                ...(statusCallback ? { statusCallback } : {}),
+              });
             } else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-
+              // keep same approach as earlier (encode + reupload → public)
               const abs = toAbsoluteUrl(step.fileUrl);
               const tmp = `./tmp_${Date.now()}.${step.type === "audio" ? "mp3" : "mp4"}`;
-
               try {
                 const dl = await fetch(abs);
                 fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
                 const encoded = await encodeForWhatsApp(tmp, step.type);
                 const uploaded = await uploadToCloudinary(fs.readFileSync(encoded), step.type, "intro_steps");
-                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [uploaded] });
+                await sendWithRetry({
+                  from: fromWhatsApp, to: From, mediaUrl: [uploaded],
+                  ...(statusCallback ? { statusCallback } : {}),
+                });
                 fs.unlinkSync(tmp); fs.unlinkSync(encoded);
               } catch {
-                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [abs] });
+                await sendWithRetry({
+                  from: fromWhatsApp, to: From, mediaUrl: [abs],
+                  ...(statusCallback ? { statusCallback } : {}),
+                });
               }
             }
 
-            session.conversationHistory.push({ sender: "ai", content: step.content || "[media]", type: step.type, timestamp: new Date() });
+            session.conversationHistory.push({
+              sender: "ai",
+              content: step.type === "text" ? step.content : `[${step.type}]`,
+              type: step.type,
+              timestamp: new Date(),
+            });
             await session.save();
             await new Promise(r => setTimeout(r, INTRO_DELAY));
           }
@@ -137,29 +185,52 @@ r.post("/webhook", withTenant, async (req, res) => {
         return;
       }
 
-      // ✅ MATCH
-      const match = incomingMsg ? await findBestMatch(QA, incomingMsg) : null;
+      // -------- QA MATCH ----------
+      const match = normalizeText(incomingMsg)
+        ? await findBestMatch(QA, incomingMsg)
+        : null;
 
       if (match) {
-
         console.log("🎯 MATCH FOUND:", {
           question: match.question,
           hasAudio: !!match.answerAudio,
           hasVideo: !!match.answerVideo,
-          textPreview: (match.answerText || "").slice(0, 60)
+          textPreview: (match.answerText || "").slice(0, 120),
         });
 
-        if (match.answerAudio)
-          return await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerAudio] });
+        // Media first, but ensure public URL
+        if (match.answerAudio) {
+          const url = await ensurePublicMedia(match.answerAudio, "audio");
+          await sendWithRetry({
+            from: fromWhatsApp, to: From, mediaUrl: [url],
+            ...(statusCallback ? { statusCallback } : {}),
+          });
+          return;
+        }
+        if (match.answerVideo) {
+          const url = await ensurePublicMedia(match.answerVideo, "video");
+          await sendWithRetry({
+            from: fromWhatsApp, to: From, mediaUrl: [url],
+            ...(statusCallback ? { statusCallback } : {}),
+          });
+          return;
+        }
 
-        if (match.answerVideo)
-          return await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [match.answerVideo] });
-
-        return await sendWithRetry({ from: fromWhatsApp, to: From, body: match.answerText || "Mun gane tambayarka." });
+        // Text
+        await sendWithRetry({
+          from: fromWhatsApp, to: From,
+          body: match.answerText || "Mun gane tambayarka.",
+          ...(statusCallback ? { statusCallback } : {}),
+        });
+        return;
       }
 
-      // ✅ FALLBACK
-      await sendWithRetry({ from: fromWhatsApp, to: From, body: "Ba mu gane tambayarka ba sosai. Don Allah ka bayyana." });
+      // -------- FALLBACK ----------
+      await sendWithRetry({
+        from: fromWhatsApp, to: From,
+        body: "Ba mu gane tambayarka ba sosai. Don Allah ka bayyana.",
+        ...(statusCallback ? { statusCallback } : {}),
+      });
 
     } catch (err) {
       console.error("❌ Webhook error:", err);
