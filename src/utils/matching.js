@@ -1,3 +1,5 @@
+
+// /src/utils/matching.js
 import natural from "natural";
 
 export function normalizeText(s) {
@@ -11,7 +13,8 @@ export function normalizeText(s) {
 export async function findBestMatch(QA, userMsg) {
   const input = normalizeText(userMsg || "");
 
-  const questions = await QA.find({
+  // Fetch only real QA entries
+  let questions = await QA.find({
     $or: [
       { type: { $exists: false } },
       { type: { $ne: "intro" } }
@@ -20,9 +23,20 @@ export async function findBestMatch(QA, userMsg) {
 
   if (!questions.length) return null;
 
-  // Build TF-IDF model
+  // ✅ Remove any entry missing question text
+  questions = questions.filter(q => q && q.question && normalizeText(q.question).length > 0);
+
+  if (!questions.length) return null;
+
+  // ✅ Build TF-IDF
   const tfidf = new natural.TfIdf();
-  questions.forEach(q => tfidf.addDocument(normalizeText(q.question || "")));
+  const normalizedQuestions = questions.map(q => normalizeText(q.question));
+
+  normalizedQuestions.forEach(qText => {
+    if (qText && qText.length > 0) {
+      tfidf.addDocument(qText);
+    }
+  });
 
   let best = { index: -1, score: 0 };
 
@@ -30,17 +44,18 @@ export async function findBestMatch(QA, userMsg) {
     if (score > best.score) best = { index: i, score };
   });
 
-  const match = best.index >= 0 ? questions[best.index] : null;
+  if (best.index < 0) return null;
+  const match = questions[best.index];
 
-  // Strict threshold — VERY IMPORTANT
-  if (!match || best.score < 0.18) {
-    console.log("❌ No strong match:", { score: best.score.toFixed(3) });
+  // ✅ Strict threshold — prevents wrong matches
+  if (best.score < 0.17) {
+    console.log("❌ No confident match. Score:", best.score.toFixed(3));
     return null;
   }
 
   console.log("🎯 MATCH FOUND (TF-IDF):", {
-    question: match.question.slice(0, 120),
-    score: best.score.toFixed(3),
+    question: match.question.slice(0, 100),
+    score: best.score.toFixed(3)
   });
 
   return match;
