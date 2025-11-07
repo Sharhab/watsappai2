@@ -145,38 +145,35 @@ r.post("/webhook", withTenant, async (req, res) => {
       // QA MATCH
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 if (match.answerAudio) {
-  const url = await ensurePublicMedia(match.answerAudio, "audio");
+  let url = await ensurePublicMedia(match.answerAudio, "audio");
+  console.log("🎧 QA AUDIO before fix:", url);
 
-  console.log("🔊 SENDING QA AUDIO:");
-  console.log({
-    to: From,
-    from: fromWhatsApp,
-    mediaUrl: url,
-    isHttps: url.startsWith("https://"),
-    fileExtension: url.split("?")[0].split(".").pop(),
-    sessionHasWelcome: session.hasReceivedWelcome,
-    lengthHistory: session.conversationHistory.length
-  });
+  // If the file is mp4 → Convert to WhatsApp-safe audio
+  if (url.endsWith(".mp4")) {
+    const tmp = `./qa_${Date.now()}.mp4`;
+    const res = await fetch(url);
+    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
 
-  try {
-    await sendWithRetry({
-      from: fromWhatsApp,
-      to: From,
-      mediaUrl: [url],
-      ...(statusCallback ? { statusCallback } : {}),
-    });
+    const { convertToWhatsAppAudio } = await import("../utils/encodeForQA.js");
+    const converted = await convertToWhatsAppAudio(tmp);
+    const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
 
-    console.log("✅ AUDIO SENT SUCCESSFULLY");
-  } catch (err) {
-    console.error("❌ FAILED TO SEND AUDIO:", {
-      error: err?.response?.data || err?.message,
-      sid: err?.code || null,
-      url
-    });
+    url = uploaded;
+
+    fs.unlinkSync(tmp);
+    fs.unlinkSync(converted);
+    console.log("✅ Converted QA audio to WhatsApp-safe OGG →", url);
   }
+
+  await sendWithRetry({
+    from: fromWhatsApp,
+    to: From,
+    mediaUrl: [url]
+  });
 
   return;
 }
+
 
       // FALLBACK
       await sendWithRetry({ from: fromWhatsApp, to: From, body: "Ba mu gane tambayarka sosai. Don Allah ka bayyana." });

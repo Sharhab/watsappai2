@@ -38,3 +38,19 @@ export function encodeForWhatsApp(inputPath, type) {
     });
   });
 }
+
+
+
+export async function convertToWhatsAppAudio(inputPath) {
+  const outputPath = inputPath.replace(/\.mp4$/i, ".ogg");
+
+  return new Promise((resolve, reject) => {
+    exec(
+      `ffmpeg -y -i "${inputPath}" -c:a libopus -b:a 32k "${outputPath}"`,
+      (err) => {
+        if (err) return reject(err);
+        resolve(outputPath);
+      }
+    );
+  });
+}
