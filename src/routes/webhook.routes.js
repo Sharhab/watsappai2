@@ -1,68 +1,45 @@
-// /src/routes/webhook.routes.js
-import { Router } from "express";
-import Tesseract from "tesseract.js";
-import fetch from "node-fetch";
+import express from "express";
 import fs from "fs";
-import { withTenant } from "../middleware/withTenant.js";
-import uploadToCloudinary from "../utils/cloudinaryUpload.js";
+import fetch from "node-fetch";
+import twilio from "twilio";
+import { normalizeText } from "../utils/matching.js";
+import { toAbsoluteUrl, uploadToCloudinary, withRetry } from "../utils/media.js";
 import { transcribeAudio } from "../utils/stt.js";
-import { findBestMatch, normalizeText } from "../utils/matching.js";
-import { toAbsoluteUrl } from "../utils/media.js";
-import { sendTemplate, sendWithRetry } from "../utils/senders.js";
-import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
+import { encodeForWhatsApp } from "../utils/encode.js";
+import Tesseract from "tesseract.js";
+import { ensurePublicMedia } from "../utils/publicMedia.js";
+import { sendWithRetry, sendTemplate } from "../utils/send.js";
+import { REENGAGE_TEMPLATE } from "../config.js";
 
-const r = Router();
-const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
-const REENGAGE_TEMPLATE = process.env.WHATSAPP_REENGAGE_TEMPLATE_SID;
+const r = express.Router();
 
-// ------------ helpers ---------------
-async function withRetry(task, { retries = 2, baseDelayMs = 800 } = {}) {
-  let lastErr;
-  for (let i = 0; i <= retries; i++) {
-    try { return await task(); } catch (err) {
-      lastErr = err;
-      if (i < retries) await new Promise(r => setTimeout(r, baseDelayMs * (i + 1)));
-    }
-  }
-  throw lastErr;
-}
+// ✅ Twilio Client (needed for delivery status check)
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-async function headOk(url) {
-  try {
-    const res = await fetch(url, { method: "HEAD" });
-    return res.ok;
-  } catch {
-    return false;
+// ✅ Wait until WhatsApp confirms the previous media has been processed
+async function waitForDelivered(messageSid) {
+  if (!messageSid) return;
+  for (let i = 0; i < 40; i++) { // ~20 seconds max
+    try {
+      const m = await client.messages(messageSid).fetch();
+      if (["sent", "delivered", "read"].includes(m.status)) return;
+    } catch {}
+    await new Promise(res => setTimeout(res, 500));
   }
 }
 
-async function ensurePublicMedia(url, type) {
-  const abs = toAbsoluteUrl(url);
-  const ok = await headOk(abs);
-  if (ok) return abs;
-
-  console.warn("⚠️ QA media not publicly reachable. Re-uploading to Cloudinary…", abs);
-  try {
-    const dl = await fetch(abs);
-    const buf = Buffer.from(await dl.arrayBuffer());
-    const uploaded = await uploadToCloudinary(buf, type, "qa_media");
-    console.log("☁️  Cloudinary public QA media:", uploaded);
-    return uploaded;
-  } catch (e) {
-    console.error("❌ Failed to re-upload QA media:", e?.message || e);
-    return abs;
-  }
+function sleep(ms) {
+  return new Promise(res => setTimeout(res, ms));
 }
+
+const INTRO_TEMPLATE_DELAY = parseInt(process.env.INTRO_TEMPLATE_DELAY || "1200", 10);
+const INTRO_TEXT_DELAY     = parseInt(process.env.INTRO_TEXT_DELAY     || "1500", 10);
+const INTRO_MEDIA_DELAY    = parseInt(process.env.INTRO_MEDIA_DELAY    || "4500", 10);
+const jitter = () => 200 + Math.floor(Math.random() * 400);
+
 r.post("/webhook", withTenant, async (req, res) => {
 
   try { res.status(200).send("OK"); } catch {}
-
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const INTRO_TEMPLATE_DELAY = parseInt(process.env.INTRO_TEMPLATE_DELAY || "1200", 10);
-  const INTRO_TEXT_DELAY     = parseInt(process.env.INTRO_TEXT_DELAY     || "1500", 10);
-  const INTRO_MEDIA_DELAY    = parseInt(process.env.INTRO_MEDIA_DELAY    || "4500", 10);
-
-  const jitter = () => 200 + Math.floor(Math.random() * 400);
 
   (async () => {
 
@@ -83,6 +60,7 @@ r.post("/webhook", withTenant, async (req, res) => {
 
     try {
 
+      // IMAGE → OCR
       if (numMedia && mediaType.startsWith("image/")) {
         const resp = await fetch(mediaUrl, {
           headers: { Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64") }
@@ -93,11 +71,13 @@ r.post("/webhook", withTenant, async (req, res) => {
         await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
       }
 
+      // AUDIO → TRANSCRIBE
       if (numMedia && mediaType.includes("audio")) {
         const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
         if (transcript) incomingMsg = transcript;
       }
 
+      // SESSION
       let session = await CustomerSession.findOne({ phoneNumber: From });
       if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
 
@@ -106,11 +86,12 @@ r.post("/webhook", withTenant, async (req, res) => {
         await session.save();
       }
 
-      // ✅ INTRO FIXED
+      // ✅ INTRO FIXED — key part
       if (!session.hasReceivedWelcome) {
 
         if (templateSid) {
-          await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+          const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+          await waitForDelivered(sid?.sid);
           await sleep(INTRO_TEMPLATE_DELAY + jitter());
         }
 
@@ -119,18 +100,16 @@ r.post("/webhook", withTenant, async (req, res) => {
         if (intro?.sequence?.length) {
           for (const step of intro.sequence) {
 
-            // TEXT — unchanged
             if (step.type === "text") {
-              await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
+              const sid = await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
+              await waitForDelivered(sid?.sid);
               await sleep(INTRO_TEXT_DELAY + jitter());
             }
 
-            // ✅ VIDEO + AUDIO FIX
             else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
 
               let url = toAbsoluteUrl(step.fileUrl);
 
-              // ✅ If video → ensure WhatsApp-safe encoding
               if (step.type === "video") {
                 try {
                   if (!url.endsWith(".mp4")) {
@@ -147,18 +126,18 @@ r.post("/webhook", withTenant, async (req, res) => {
                     fs.unlinkSync(converted);
                   }
                 } catch (err) {
-                  console.error("⚠️ Video conversion failed — sending original:", err);
+                  console.error("⚠️ Video conversion failed:", err);
                 }
               }
 
-              await sendWithRetry({
+              const sid = await sendWithRetry({
                 from: fromWhatsApp,
                 to: From,
                 mediaUrl: [url],
                 ...(statusCallback ? { statusCallback } : {}),
               });
 
-              // ✅ *Key Fix* Larger wait after media to prevent skipping
+              await waitForDelivered(sid?.sid);
               await sleep(INTRO_MEDIA_DELAY + jitter());
             }
 
@@ -172,7 +151,7 @@ r.post("/webhook", withTenant, async (req, res) => {
         return;
       }
 
-      // ✅ 24-HOUR REOPEN
+      // ✅ 24-HOUR REENGAGEMENT — unchanged
       if (session.conversationHistory.length > 0) {
         const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
         const hours = (Date.now() - new Date(lastMsg.timestamp)) / 36e5;
@@ -182,6 +161,7 @@ r.post("/webhook", withTenant, async (req, res) => {
         }
       }
 
+      // ✅ QA AUDIO — unchanged
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
       if (match && match.answerAudio) {
