@@ -10,7 +10,6 @@ import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
-const converted = await encodeForWhatsApp(tmp, "audio");
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
@@ -143,23 +142,20 @@ r.post("/webhook", withTenant, async (req, res) => {
         }
       }
 
-// QA MATCH
-const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
-
-// ✅ AUDIO ANSWER
-if (match.answerAudio) {
+// ✅ AUDIO ANSWER BLOCK (safe & correct)
+if (match && match.answerAudio) {
   let url = await ensurePublicMedia(match.answerAudio, "audio");
   console.log("🎧 QA AUDIO before conversion check:", url);
 
-  // If Cloudinary stored MP4, convert to WhatsApp-safe audio
+  // Only convert if Cloudinary stored MP4
   if (url.endsWith(".mp4")) {
-    console.log("🔄 Converting MP4 → WhatsApp-safe OGG...");
-    const tmp = `./qa_${Date.now()}.mp4`;
+    console.log("🔄 Converting MP4 → WhatsApp-safe OGG (.opus)…");
 
+    const tmp = `./qa_${Date.now()}.mp4`; // <-- declared HERE (inside block)
     const res = await fetch(url);
     fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
 
-    // ✅ Use existing working converter
+    // ✅ use the correct existing converter
     const converted = await encodeForWhatsApp(tmp, "audio");
 
     const uploaded = await uploadToCloudinary(
@@ -176,7 +172,8 @@ if (match.answerAudio) {
     console.log("✅ Converted QA audio →", url);
   }
 
-  console.log("📤 Sending Audio QA:", url);
+  // ✅ SEND THE AUDIO
+  console.log("📤 Sending QA Audio:", url);
 
   await sendWithRetry({
     from: fromWhatsApp,
@@ -185,6 +182,7 @@ if (match.answerAudio) {
     ...(statusCallback ? { statusCallback } : {}),
   });
 
+  // ✅ Save to conversation history
   session.conversationHistory.push({
     sender: "ai",
     content: "[audio]",
@@ -192,6 +190,7 @@ if (match.answerAudio) {
     timestamp: new Date(),
   });
   await session.save();
+
   return;
 }
 
