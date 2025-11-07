@@ -53,7 +53,6 @@ async function ensurePublicMedia(url, type) {
     return abs;
   }
 }
-
 r.post("/webhook", withTenant, async (req, res) => {
 
   try { res.status(200).send("OK"); } catch {}
@@ -83,62 +82,88 @@ r.post("/webhook", withTenant, async (req, res) => {
     let incomingMsg = req.body?.Body || "";
 
     try {
-if (numMedia && mediaType.startsWith("image/")) {
-        const response = await fetch(mediaUrl, {
+
+      if (numMedia && mediaType.startsWith("image/")) {
+        const resp = await fetch(mediaUrl, {
           headers: { Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64") }
         });
-        const buffer = Buffer.from(await response.arrayBuffer());
+        const buffer = Buffer.from(await resp.arrayBuffer());
         const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
-
         const { data: { text }} = await Tesseract.recognize(uploaded, "eng");
         await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
       }
 
-      // ---------------- AUDIO → TRANSCRIBE ----------------
       if (numMedia && mediaType.includes("audio")) {
-        const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken), { label: "STT" });
+        const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
         if (transcript) incomingMsg = transcript;
       }
 
-      // ---------------- SESSION ----------------
       let session = await CustomerSession.findOne({ phoneNumber: From });
       if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
 
-      if (incomingMsg.trim()) {
+      if (normalizeText(incomingMsg)) {
         session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
         await session.save();
       }
 
-      // ---------------- INTRO SEQUENCE ----------------
+      // ✅ INTRO FIXED
       if (!session.hasReceivedWelcome) {
-        if (templateSid) await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+
+        if (templateSid) {
+          await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+          await sleep(INTRO_TEMPLATE_DELAY + jitter());
+        }
 
         const intro = await Intro.findOne();
-        if (intro?.sequence) {
+
+        if (intro?.sequence?.length) {
           for (const step of intro.sequence) {
+
+            // TEXT — unchanged
             if (step.type === "text") {
               await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
-
-            } else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-              const abs = toAbsoluteUrl(step.fileUrl);
-              const tmp = `./tmp_${Date.now()}.${step.type === "audio" ? "mp3" : "mp4"}`;
-
-              try {
-                const res = await fetch(abs);
-                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-                const encoded = await encodeForWhatsApp(tmp, step.type);
-                const uploaded = await uploadToCloudinary(fs.readFileSync(encoded), step.type, "intro_steps");
-
-                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [uploaded], ...(statusCallback ? { statusCallback } : {}) });
-                fs.unlinkSync(tmp); fs.unlinkSync(encoded);
-              } catch {
-                await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [abs], ...(statusCallback ? { statusCallback } : {}) });
-              }
+              await sleep(INTRO_TEXT_DELAY + jitter());
             }
 
-            session.conversationHistory.push({ sender: "ai", content: step.content || `[media]`, type: step.type, timestamp: new Date() });
+            // ✅ VIDEO + AUDIO FIX
+            else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
+
+              let url = toAbsoluteUrl(step.fileUrl);
+
+              // ✅ If video → ensure WhatsApp-safe encoding
+              if (step.type === "video") {
+                try {
+                  if (!url.endsWith(".mp4")) {
+                    const tmp = `./intro_${Date.now()}.video`;
+                    const res = await fetch(url);
+                    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+
+                    const converted = await encodeForWhatsApp(tmp, "video");
+                    const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "video", "intro_video");
+
+                    url = uploaded;
+
+                    fs.unlinkSync(tmp);
+                    fs.unlinkSync(converted);
+                  }
+                } catch (err) {
+                  console.error("⚠️ Video conversion failed — sending original:", err);
+                }
+              }
+
+              await sendWithRetry({
+                from: fromWhatsApp,
+                to: From,
+                mediaUrl: [url],
+                ...(statusCallback ? { statusCallback } : {}),
+              });
+
+              // ✅ *Key Fix* Larger wait after media to prevent skipping
+              await sleep(INTRO_MEDIA_DELAY + jitter());
+            }
+
+            session.conversationHistory.push({ sender: "ai", content: step.content || `[${step.type}]`, type: step.type, timestamp: new Date() });
             await session.save();
-            await new Promise(r => setTimeout(r, INTRO_DELAY));
           }
         }
 
