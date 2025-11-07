@@ -144,21 +144,39 @@ r.post("/webhook", withTenant, async (req, res) => {
 
       // QA MATCH
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
-      if (match) {
-        console.log("🎯 MATCH FOUND:", { q: match.question.slice(0,80), aText: !!match.answerText, aAudio: !!match.answerAudio });
-        if (match.answerAudio) {
-          const url = await ensurePublicMedia(match.answerAudio, "audio");
-          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [url] });
-          return;
-        }
-        if (match.answerVideo) {
-          const url = await ensurePublicMedia(match.answerVideo, "video");
-          await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [url] });
-          return;
-        }
-        await sendWithRetry({ from: fromWhatsApp, to: From, body: match.answerText || "Mun gane." });
-        return;
-      }
+if (match.answerAudio) {
+  const url = await ensurePublicMedia(match.answerAudio, "audio");
+
+  console.log("🔊 SENDING QA AUDIO:");
+  console.log({
+    to: From,
+    from: fromWhatsApp,
+    mediaUrl: url,
+    isHttps: url.startsWith("https://"),
+    fileExtension: url.split("?")[0].split(".").pop(),
+    sessionHasWelcome: session.hasReceivedWelcome,
+    lengthHistory: session.conversationHistory.length
+  });
+
+  try {
+    await sendWithRetry({
+      from: fromWhatsApp,
+      to: From,
+      mediaUrl: [url],
+      ...(statusCallback ? { statusCallback } : {}),
+    });
+
+    console.log("✅ AUDIO SENT SUCCESSFULLY");
+  } catch (err) {
+    console.error("❌ FAILED TO SEND AUDIO:", {
+      error: err?.response?.data || err?.message,
+      sid: err?.code || null,
+      url
+    });
+  }
+
+  return;
+}
 
       // FALLBACK
       await sendWithRetry({ from: fromWhatsApp, to: From, body: "Ba mu gane tambayarka sosai. Don Allah ka bayyana." });
