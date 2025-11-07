@@ -1,5 +1,4 @@
-// /src/utils/matching.js
-import stringSimilarity from "string-similarity";
+import natural from "natural";
 
 export function normalizeText(s) {
   return (s || "")
@@ -9,20 +8,8 @@ export function normalizeText(s) {
     .trim();
 }
 
-function tokenOverlapScore(a, b) {
-  const A = new Set(normalizeText(a).split(" ").filter(Boolean));
-  const B = new Set(normalizeText(b).split(" ").filter(Boolean));
-  if (!A.size || !B.size) return 0;
-
-  let inter = 0;
-  for (const t of A) if (B.has(t)) inter += 1;
-
-  return inter / Math.min(A.size, B.size);
-}
-
 export async function findBestMatch(QA, userMsg) {
   const input = normalizeText(userMsg || "");
-  if (!input) return null;
 
   const questions = await QA.find({
     $or: [
@@ -33,30 +20,28 @@ export async function findBestMatch(QA, userMsg) {
 
   if (!questions.length) return null;
 
-  const normalizedQuestions = questions.map(q =>
-    normalizeText(q?.question || "")
-  );
+  // Build TF-IDF model
+  const tfidf = new natural.TfIdf();
+  questions.forEach(q => tfidf.addDocument(normalizeText(q.question || "")));
 
-  // string similarity scoring
-  const ratings = stringSimilarity.findBestMatch(input, normalizedQuestions).ratings;
-  const scored = ratings
-    .map((r, idx) => ({ idx, score: r.rating }))
-    .sort((a, b) => b.score - a.score);
+  let best = { index: -1, score: 0 };
 
-  const best = scored[0];
-
-  // ✅ relaxed threshold for Hausa conversational style
-  if (best && best.score >= 0.25) return questions[best.idx];
-
-  // token overlap (backup)
-  let bestOverlap = { idx: -1, score: 0 };
-  normalizedQuestions.forEach((q, idx) => {
-    const score = tokenOverlapScore(input, q);
-    if (score > bestOverlap.score) bestOverlap = { idx, score };
+  tfidf.tfidf(input, (i, score) => {
+    if (score > best.score) best = { index: i, score };
   });
 
-  if (bestOverlap.idx >= 0 && bestOverlap.score >= 0.20)
-    return questions[bestOverlap.idx];
+  const match = best.index >= 0 ? questions[best.index] : null;
 
-  return null;
+  // Strict threshold — VERY IMPORTANT
+  if (!match || best.score < 0.18) {
+    console.log("❌ No strong match:", { score: best.score.toFixed(3) });
+    return null;
+  }
+
+  console.log("🎯 MATCH FOUND (TF-IDF):", {
+    question: match.question.slice(0, 120),
+    score: best.score.toFixed(3),
+  });
+
+  return match;
 }
