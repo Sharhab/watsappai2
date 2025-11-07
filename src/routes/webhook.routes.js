@@ -124,7 +124,7 @@ r.post("/webhook", withTenant, async (req, res) => {
         await session.save();
       }
 
-      // ✅ ✅ ✅ INTRO FIXED — FULL MEDIA SEQUENCING
+      // ✅ ✅ ✅ INTRO with FORCE ENCODE FIX
       if (!session.hasReceivedWelcome) {
 
         if (templateSid) {
@@ -145,26 +145,26 @@ r.post("/webhook", withTenant, async (req, res) => {
               await sleep(INTRO_TEXT_DELAY + jitter());
             }
 
-            // MEDIA (video/audio)
+            // ✅ MEDIA — FORCE RE-ENCODE EVERY TIME
             else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
 
               let url = toAbsoluteUrl(step.fileUrl);
 
-              if (step.type === "video") {
-                try {
-                  if (!url.endsWith(".mp4")) {
-                    const tmp = `./intro_${Date.now()}.video`;
-                    const res = await fetch(url);
-                    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-                    const converted = await encodeForWhatsApp(tmp, "video");
-                    const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "video", "intro_video");
-                    url = uploaded;
-                    fs.unlinkSync(tmp);
-                    fs.unlinkSync(converted);
-                  }
-                } catch (err) {
-                  console.error("⚠️ Video conversion failed — sending original:", err);
-                }
+              try {
+                const tmp = `./intro_${Date.now()}`;
+                const res = await fetch(url);
+                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+
+                // 🔥 Always encode according to WhatsApp-safe spec
+                const converted = await encodeForWhatsApp(tmp, step.type);
+                const uploaded = await uploadToCloudinary(fs.readFileSync(converted), step.type, "intro_media");
+
+                url = uploaded;
+
+                fs.unlinkSync(tmp);
+                fs.unlinkSync(converted);
+              } catch (err) {
+                console.error("⚠️ Forced intro re-encode failed — sending original:", err);
               }
 
               const sid = await sendWithRetry({
