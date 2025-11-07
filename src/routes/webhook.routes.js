@@ -143,6 +143,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
 // ✅ AUDIO ANSWER BLOCK (safe & correct)
+const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 if (match && match.answerAudio) {
   let url = await ensurePublicMedia(match.answerAudio, "audio");
   console.log("🎧 QA AUDIO before conversion check:", url);
