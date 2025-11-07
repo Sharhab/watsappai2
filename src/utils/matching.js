@@ -1,20 +1,75 @@
+import stringSimilarity from "string-similarity";
 
-// /src/utils/matching.js
-import natural from "natural";
+const slangMap = {
+  "wlhi": "wallahi",
+  "wlh": "wallahi",
+  "plz": "don Allah",
+  "pls": "don Allah",
+  "pls.": "don Allah",
+  "abeg": "don Allah",
+  "haba": "",
+  "toh": "",
+  "to": "",
+  "ehm": "",
+  "kai": "",
+  "dan Allah": "don Allah"
+};
 
 export function normalizeText(s) {
-  return (s || "")
-    .toLowerCase()
-    .replace(/[^\w\s]/g, "")
+  if (!s) return "";
+
+  let text = s.toLowerCase()
+    .replace(/[^\w\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  // apply slang normalization
+  Object.keys(slangMap).forEach(key => {
+    const regex = new RegExp(`\\b${key}\\b`, "g");
+    text = text.replace(regex, slangMap[key]);
+  });
+
+  // remove repeated vowels "yaaaa" → "ya"
+  text = text.replace(/([aeiou])\1+/g, "$1");
+
+  return text;
+}
+
+function tokenOverlapScore(a, b) {
+  const A = new Set(normalizeText(a).split(" ").filter(Boolean));
+  const B = new Set(normalizeText(b).split(" ").filter(Boolean));
+  if (!A.size || !B.size) return 0;
+
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter += 1;
+
+  return inter / Math.min(A.size, B.size);
+}
+
+// ✅ NEW: Hausa keyword groups
+const keywordGroups = [
+  ["farashi", "kudin", "kudin magani", "rage", "sayi"], // price
+  ["inganci", "tabbaci", "amfani", "aiki"], // effectiveness
+  ["side effect", "illa", "lafiya", "amintacce"], // safety
+  ["yadda ake", "yaya ake", "take amfani"], // usage
+  ["kawo", "delivery", "isowa", "zuwa"], // delivery
+];
+
+function keywordWeight(input, question) {
+  let score = 0;
+  for (const group of keywordGroups) {
+    if (group.some(word => input.includes(word) && question.includes(word))) {
+      score += 0.15; // keyword match adds boost
+    }
+  }
+  return score;
 }
 
 export async function findBestMatch(QA, userMsg) {
   const input = normalizeText(userMsg || "");
+  if (!input) return null;
 
-  // Fetch only real QA entries
-  let questions = await QA.find({
+  const questions = await QA.find({
     $or: [
       { type: { $exists: false } },
       { type: { $ne: "intro" } }
@@ -23,40 +78,32 @@ export async function findBestMatch(QA, userMsg) {
 
   if (!questions.length) return null;
 
-  // ✅ Remove any entry missing question text
-  questions = questions.filter(q => q && q.question && normalizeText(q.question).length > 0);
+  const normalizedQuestions = questions.map(q => normalizeText(q?.question || ""));
 
-  if (!questions.length) return null;
-
-  // ✅ Build TF-IDF
-  const tfidf = new natural.TfIdf();
-  const normalizedQuestions = questions.map(q => normalizeText(q.question));
-
-  normalizedQuestions.forEach(qText => {
-    if (qText && qText.length > 0) {
-      tfidf.addDocument(qText);
-    }
+  // string similarity scoring
+  const ratings = stringSimilarity.findBestMatch(input, normalizedQuestions).ratings;
+  let scored = ratings.map((r, idx) => {
+    return {
+      idx,
+      score: r.rating + keywordWeight(input, normalizedQuestions[idx]) // ✅ include keyword boost
+    };
   });
 
-  let best = { index: -1, score: 0 };
+  scored.sort((a, b) => b.score - a.score);
+  let best = scored[0];
 
-  tfidf.tfidf(input, (i, score) => {
-    if (score > best.score) best = { index: i, score };
+  // ✅ Relaxed threshold
+  if (best && best.score >= 0.22) return questions[best.idx];
+
+  // token overlap fallback
+  let bestOverlap = { idx: -1, score: 0 };
+  normalizedQuestions.forEach((q, idx) => {
+    const score = tokenOverlapScore(input, q);
+    if (score > bestOverlap.score) bestOverlap = { idx, score };
   });
 
-  if (best.index < 0) return null;
-  const match = questions[best.index];
+  if (bestOverlap.idx >= 0 && bestOverlap.score >= 0.18)
+    return questions[bestOverlap.idx];
 
-  // ✅ Strict threshold — prevents wrong matches
-  if (best.score < 0.17) {
-    console.log("❌ No confident match. Score:", best.score.toFixed(3));
-    return null;
-  }
-
-  console.log("🎯 MATCH FOUND (TF-IDF):", {
-    question: match.question.slice(0, 100),
-    score: best.score.toFixed(3)
-  });
-
-  return match;
+  return null;
 }
