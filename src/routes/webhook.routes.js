@@ -142,41 +142,94 @@ r.post("/webhook", withTenant, async (req, res) => {
         }
       }
 
-      // QA MATCH
-      const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
-if (match.answerAudio) {
-  let url = await ensurePublicMedia(match.answerAudio, "audio");
-  console.log("🎧 QA AUDIO before fix:", url);
+// QA MATCH
+const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
-  // If the file is mp4 → Convert to WhatsApp-safe audio
-  if (url.endsWith(".mp4")) {
-    const tmp = `./qa_${Date.now()}.mp4`;
-    const res = await fetch(url);
-    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+if (match) {
+  console.log("🎯 MATCH FOUND:", {
+    question: match.question,
+    hasAudio: !!match.answerAudio,
+    hasVideo: !!match.answerVideo,
+    preview: (match.answerText || "").slice(0, 100)
+  });
 
-    const { convertToWhatsAppAudio } = await import("../utils/encodeForQA.js");
-    const converted = await convertToWhatsAppAudio(tmp);
-    const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
+  // ✅ AUDIO ANSWER
+  if (match.answerAudio) {
+    let url = await ensurePublicMedia(match.answerAudio, "audio");
+    console.log("🎧 QA AUDIO before conversion check:", url);
 
-    url = uploaded;
+    // If Cloudinary stored video (mp4), convert to WhatsApp-safe OGG
+    if (url.endsWith(".mp4")) {
+      console.log("🔄 Converting MP4 → WhatsApp-safe OGG...");
+      const tmp = `./qa_${Date.now()}.mp4`;
+      const res = await fetch(url);
+      fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
 
-    fs.unlinkSync(tmp);
-    fs.unlinkSync(converted);
-    console.log("✅ Converted QA audio to WhatsApp-safe OGG →", url);
+      const { convertToWhatsAppAudio } = await import("../utils/encodeForQA.js");
+      const converted = await convertToWhatsAppAudio(tmp);
+      const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
+
+      url = uploaded;
+
+      fs.unlinkSync(tmp);
+      fs.unlinkSync(converted);
+      console.log("✅ Converted QA audio →", url);
+    }
+
+    console.log("📤 Sending Audio QA:", url);
+    await sendWithRetry({
+      from: fromWhatsApp,
+      to: From,
+      mediaUrl: [url],
+      ...(statusCallback ? { statusCallback } : {})
+    });
+
+    // Save history
+    session.conversationHistory.push({ sender: "ai", content: "[audio]", type: "audio", timestamp: new Date() });
+    await session.save();
+
+    return;
   }
 
+  // ✅ VIDEO ANSWER
+  if (match.answerVideo) {
+    const url = await ensurePublicMedia(match.answerVideo, "video");
+    console.log("📤 Sending Video QA:", url);
+    await sendWithRetry({
+      from: fromWhatsApp,
+      to: From,
+      mediaUrl: [url],
+      ...(statusCallback ? { statusCallback } : {})
+    });
+
+    session.conversationHistory.push({ sender: "ai", content: "[video]", type: "video", timestamp: new Date() });
+    await session.save();
+    return;
+  }
+
+  // ✅ TEXT ANSWER
+  const answer = match.answerText || "Mun gane tambayarka.";
+  console.log("💬 Sending Text QA:", answer);
   await sendWithRetry({
     from: fromWhatsApp,
     to: From,
-    mediaUrl: [url]
+    body: answer,
+    ...(statusCallback ? { statusCallback } : {})
   });
 
+  session.conversationHistory.push({ sender: "ai", content: answer, type: "text", timestamp: new Date() });
+  await session.save();
   return;
 }
 
-
-      // FALLBACK
-      await sendWithRetry({ from: fromWhatsApp, to: From, body: "Ba mu gane tambayarka sosai. Don Allah ka bayyana." });
+// FALLBACK WHEN NO MATCH
+console.log("⚠️ No QA match — sending fallback message");
+await sendWithRetry({
+  from: fromWhatsApp,
+  to: From,
+  body: "Ba mu gane tambayarka sosai. Don Allah ka bayyana.",
+  ...(statusCallback ? { statusCallback } : {})
+});
 
     } catch (err) {
       console.error("❌ Webhook error:", err);
