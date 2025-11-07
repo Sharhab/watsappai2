@@ -10,6 +10,7 @@ import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
+const converted = await encodeForWhatsApp(tmp, "audio");
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
@@ -145,91 +146,54 @@ r.post("/webhook", withTenant, async (req, res) => {
 // QA MATCH
 const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
-if (match) {
-  console.log("🎯 MATCH FOUND:", {
-    question: match.question,
-    hasAudio: !!match.answerAudio,
-    hasVideo: !!match.answerVideo,
-    preview: (match.answerText || "").slice(0, 100)
-  });
+// ✅ AUDIO ANSWER
+if (match.answerAudio) {
+  let url = await ensurePublicMedia(match.answerAudio, "audio");
+  console.log("🎧 QA AUDIO before conversion check:", url);
 
-  // ✅ AUDIO ANSWER
-  if (match.answerAudio) {
-    let url = await ensurePublicMedia(match.answerAudio, "audio");
-    console.log("🎧 QA AUDIO before conversion check:", url);
+  // If Cloudinary stored MP4, convert to WhatsApp-safe audio
+  if (url.endsWith(".mp4")) {
+    console.log("🔄 Converting MP4 → WhatsApp-safe OGG...");
+    const tmp = `./qa_${Date.now()}.mp4`;
 
-    // If Cloudinary stored video (mp4), convert to WhatsApp-safe OGG
-    if (url.endsWith(".mp4")) {
-      console.log("🔄 Converting MP4 → WhatsApp-safe OGG...");
-      const tmp = `./qa_${Date.now()}.mp4`;
-      const res = await fetch(url);
-      fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+    const res = await fetch(url);
+    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
 
-      const { convertToWhatsAppAudio } = await import("../utils/encodeForQA.js");
-      const converted = await convertToWhatsAppAudio(tmp);
-      const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
+    // ✅ Use existing working converter
+    const converted = await encodeForWhatsApp(tmp, "audio");
 
-      url = uploaded;
+    const uploaded = await uploadToCloudinary(
+      fs.readFileSync(converted),
+      "audio",
+      "qa_voice"
+    );
 
-      fs.unlinkSync(tmp);
-      fs.unlinkSync(converted);
-      console.log("✅ Converted QA audio →", url);
-    }
+    url = uploaded;
 
-    console.log("📤 Sending Audio QA:", url);
-    await sendWithRetry({
-      from: fromWhatsApp,
-      to: From,
-      mediaUrl: [url],
-      ...(statusCallback ? { statusCallback } : {})
-    });
+    fs.unlinkSync(tmp);
+    fs.unlinkSync(converted);
 
-    // Save history
-    session.conversationHistory.push({ sender: "ai", content: "[audio]", type: "audio", timestamp: new Date() });
-    await session.save();
-
-    return;
+    console.log("✅ Converted QA audio →", url);
   }
 
-  // ✅ VIDEO ANSWER
-  if (match.answerVideo) {
-    const url = await ensurePublicMedia(match.answerVideo, "video");
-    console.log("📤 Sending Video QA:", url);
-    await sendWithRetry({
-      from: fromWhatsApp,
-      to: From,
-      mediaUrl: [url],
-      ...(statusCallback ? { statusCallback } : {})
-    });
+  console.log("📤 Sending Audio QA:", url);
 
-    session.conversationHistory.push({ sender: "ai", content: "[video]", type: "video", timestamp: new Date() });
-    await session.save();
-    return;
-  }
-
-  // ✅ TEXT ANSWER
-  const answer = match.answerText || "Mun gane tambayarka.";
-  console.log("💬 Sending Text QA:", answer);
   await sendWithRetry({
     from: fromWhatsApp,
     to: From,
-    body: answer,
-    ...(statusCallback ? { statusCallback } : {})
+    mediaUrl: [url],
+    ...(statusCallback ? { statusCallback } : {}),
   });
 
-  session.conversationHistory.push({ sender: "ai", content: answer, type: "text", timestamp: new Date() });
+  session.conversationHistory.push({
+    sender: "ai",
+    content: "[audio]",
+    type: "audio",
+    timestamp: new Date(),
+  });
   await session.save();
   return;
 }
-
-// FALLBACK WHEN NO MATCH
-console.log("⚠️ No QA match — sending fallback message");
-await sendWithRetry({
-  from: fromWhatsApp,
-  to: From,
-  body: "Ba mu gane tambayarka sosai. Don Allah ka bayyana.",
-  ...(statusCallback ? { statusCallback } : {})
-});
 
     } catch (err) {
       console.error("❌ Webhook error:", err);
