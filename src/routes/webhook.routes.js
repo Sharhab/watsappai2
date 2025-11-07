@@ -54,23 +54,16 @@ async function ensurePublicMedia(url, type) {
   }
 }
 
-// ------------------------------------
 r.post("/webhook", withTenant, async (req, res) => {
 
   try { res.status(200).send("OK"); } catch {}
 
-  // ✅ Added: small helpers & configurable delays (non-breaking)
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const INTRO_TEMPLATE_DELAY = parseInt(process.env.INTRO_TEMPLATE_DELAY || "1200", 10);
   const INTRO_TEXT_DELAY     = parseInt(process.env.INTRO_TEXT_DELAY     || "1500", 10);
   const INTRO_MEDIA_DELAY    = parseInt(process.env.INTRO_MEDIA_DELAY    || "4500", 10);
-  const JITTER_MIN           = 150;   // tiny randomization to avoid burst patterns
-  const JITTER_MAX           = 450;
 
-  const withJitter = (base) => {
-    const j = Math.floor(Math.random() * (JITTER_MAX - JITTER_MIN + 1)) + JITTER_MIN;
-    return base + j;
-  };
+  const jitter = () => 200 + Math.floor(Math.random() * 400);
 
   (async () => {
 
@@ -91,7 +84,6 @@ r.post("/webhook", withTenant, async (req, res) => {
 
     try {
 
-      // IMAGE → OCR
       if (numMedia && mediaType.startsWith("image/")) {
         const resp = await fetch(mediaUrl, {
           headers: { Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64") }
@@ -102,35 +94,25 @@ r.post("/webhook", withTenant, async (req, res) => {
         await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
       }
 
-      // AUDIO → STT
       if (numMedia && mediaType.includes("audio")) {
-        console.log("🎙 Voice message detected → Calling STT...");
         const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
-        if (transcript) {
-          incomingMsg = transcript;
-          console.log("📝 TRANSCRIBED:", transcript);
-        }
+        if (transcript) incomingMsg = transcript;
       }
 
-      // SESSION
       let session = await CustomerSession.findOne({ phoneNumber: From });
-      if (!session) {
-        session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
-      }
+      if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
 
       if (normalizeText(incomingMsg)) {
-        console.log("🧠 USER SAID:", incomingMsg);
         session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
         await session.save();
       }
 
-      // INTRO
+      // ✅ INTRO FIXED
       if (!session.hasReceivedWelcome) {
 
         if (templateSid) {
           await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-          // ✅ NEW: give WhatsApp a moment to “open” the thread
-          await sleep(withJitter(INTRO_TEMPLATE_DELAY));
+          await sleep(INTRO_TEMPLATE_DELAY + jitter());
         }
 
         const intro = await Intro.findOne();
@@ -138,27 +120,49 @@ r.post("/webhook", withTenant, async (req, res) => {
         if (intro?.sequence?.length) {
           for (const step of intro.sequence) {
 
+            // TEXT — unchanged
             if (step.type === "text") {
               await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
+              await sleep(INTRO_TEXT_DELAY + jitter());
+            }
 
-              // ✅ NEW: lighter delay for text (prevents text from jumping ahead)
-              await sleep(withJitter(INTRO_TEXT_DELAY));
+            // ✅ VIDEO + AUDIO FIX
+            else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
 
-            } else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-              const abs = toAbsoluteUrl(step.fileUrl);
+              let url = toAbsoluteUrl(step.fileUrl);
+
+              // ✅ If video → ensure WhatsApp-safe encoding
+              if (step.type === "video") {
+                try {
+                  if (!url.endsWith(".mp4")) {
+                    const tmp = `./intro_${Date.now()}.video`;
+                    const res = await fetch(url);
+                    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+
+                    const converted = await encodeForWhatsApp(tmp, "video");
+                    const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "video", "intro_video");
+
+                    url = uploaded;
+
+                    fs.unlinkSync(tmp);
+                    fs.unlinkSync(converted);
+                  }
+                } catch (err) {
+                  console.error("⚠️ Video conversion failed — sending original:", err);
+                }
+              }
 
               await sendWithRetry({
                 from: fromWhatsApp,
                 to: From,
-                mediaUrl: [abs],
+                mediaUrl: [url],
                 ...(statusCallback ? { statusCallback } : {}),
               });
 
-              // ✅ NEW: heavier delay for media (WhatsApp needs time to ingest/transcode)
-              await sleep(withJitter(INTRO_MEDIA_DELAY));
+              // ✅ *Key Fix* Larger wait after media to prevent skipping
+              await sleep(INTRO_MEDIA_DELAY + jitter());
             }
 
-            // (unchanged) save to history
             session.conversationHistory.push({ sender: "ai", content: step.content || `[${step.type}]`, type: step.type, timestamp: new Date() });
             await session.save();
           }
@@ -169,26 +173,21 @@ r.post("/webhook", withTenant, async (req, res) => {
         return;
       }
 
-      // ✅ 24-HOUR REOPEN LOGIC HERE
+      // ✅ 24-HOUR REOPEN
       if (session.conversationHistory.length > 0) {
         const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
         const hours = (Date.now() - new Date(lastMsg.timestamp)) / 36e5;
         if (hours > 24 && REENGAGE_TEMPLATE) {
-          console.log(`⛔ ${hours.toFixed(1)}h since last message → Reopening...`);
           await sendTemplate(From, fromWhatsApp, REENGAGE_TEMPLATE, { 1: "Muna nan 😊" }, statusCallback);
           await sleep(1200);
         }
       }
 
-      // ✅ AUDIO ANSWER BLOCK (safe & correct)
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
       if (match && match.answerAudio) {
         let url = await ensurePublicMedia(match.answerAudio, "audio");
-        console.log("🎧 QA AUDIO before conversion check:", url);
-
         if (url.endsWith(".mp4")) {
-          console.log("🔄 Converting MP4 → WhatsApp-safe OGG (.opus)…");
           const tmp = `./qa_${Date.now()}.mp4`;
           const res = await fetch(url);
           fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
@@ -197,20 +196,10 @@ r.post("/webhook", withTenant, async (req, res) => {
           url = uploaded;
           fs.unlinkSync(tmp);
           fs.unlinkSync(converted);
-          console.log("✅ Converted QA audio →", url);
         }
-
-        console.log("📤 Sending QA Audio:", url);
-        await sendWithRetry({
-          from: fromWhatsApp,
-          to: From,
-          mediaUrl: [url],
-          ...(statusCallback ? { statusCallback } : {}),
-        });
-
+        await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [url], ...(statusCallback ? { statusCallback } : {}) });
         session.conversationHistory.push({ sender: "ai", content: "[audio]", type: "audio", timestamp: new Date() });
         await session.save();
-
         return;
       }
 
@@ -223,4 +212,3 @@ r.post("/webhook", withTenant, async (req, res) => {
 });
 
 export default r;
-
