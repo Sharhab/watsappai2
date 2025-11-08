@@ -188,9 +188,10 @@ r.post("/webhook", withTenant, async (req, res) => {
         return;
       }
 
-      // ---------- 24H reopen ----------
+      
+      // ✅ 24-HOUR REOPEN
       if (session.conversationHistory.length > 0) {
-        const lastMsg = session.conversationHistory.at(-1);
+        const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
         const hours = (Date.now() - new Date(lastMsg.timestamp)) / 36e5;
         if (hours > 24 && REENGAGE_TEMPLATE) {
           await sendTemplate(From, fromWhatsApp, REENGAGE_TEMPLATE, { 1: "Muna nan 😊" }, statusCallback);
@@ -198,7 +199,6 @@ r.post("/webhook", withTenant, async (req, res) => {
         }
       }
 
-      // ---------- QA AUDIO (UNTOUCHED) ----------
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
       if (match && match.answerAudio) {
