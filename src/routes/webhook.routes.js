@@ -120,7 +120,13 @@ r.post("/webhook", withTenant, async (req, res) => {
       if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
 
       if (normalizeText(incomingMsg)) {
-        session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
+     session.conversationHistory.push({
+  sender: "customer",
+  content: incomingMsg,
+  type: numMedia ? "audio" : "text", // ✅ FIXED
+  timestamp: new Date(),
+});
+
         await session.save();
       }
 
