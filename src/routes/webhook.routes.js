@@ -121,11 +121,13 @@ r.post("/webhook", withTenant, async (req, res) => {
 
       if (normalizeText(incomingMsg)) {
 session.conversationHistory.push({
-  sender: "user",
+  sender: "customer",
   content: incomingMsg,
-  type: numMedia ? "audio" : "text",
+  type: numMedia ? "voice" : "text",
   timestamp: new Date(),
 });
+await session.save();
+
         await session.save();
       }
 
@@ -225,12 +227,7 @@ await session.save();
           fs.unlinkSync(converted);
         }
         await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [url], ...(statusCallback ? { statusCallback } : {}) });
-       session.conversationHistory.push({
-  sender: "ai",
-  type: "audio",
-  content: url, // actual media URL
-  timestamp: new Date(),
-});
+     session.conversationHistory.push({ sender: "ai", content: "[audio]", type: "audio", timestamp: new Date() });
 await session.save();
 
         return;
