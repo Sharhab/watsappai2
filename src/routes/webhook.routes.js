@@ -120,15 +120,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
 
       if (normalizeText(incomingMsg)) {
-session.conversationHistory.push({
-  sender: "customer",
-  content: incomingMsg,
-  type: numMedia ? "audio" : "text", // ✅ FIXED
-  timestamp: new Date(),
-});
-
-await session.save();
-
+        session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
         await session.save();
       }
 
@@ -185,15 +177,9 @@ await session.save();
               await waitForDelivered(sid?.sid || sid);
               await sleep(INTRO_MEDIA_DELAY + jitter());
             }
-session.conversationHistory.push({
-  sender: "ai",
-  type: step.type,
-  content: step.type === "text" ? step.content : url,  // ✅ use the real playable link
-  timestamp: new Date(),
-});
 
-await session.save();
-
+            session.conversationHistory.push({ sender: "ai", content: step.content || `[${step.type}]`, type: step.type, timestamp: new Date() });
+            await session.save();
           }
         }
 
@@ -228,9 +214,8 @@ await session.save();
           fs.unlinkSync(converted);
         }
         await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [url], ...(statusCallback ? { statusCallback } : {}) });
-     session.conversationHistory.push({ sender: "ai", content: "[audio]", type: "audio", timestamp: new Date() });
-await session.save();
-
+        session.conversationHistory.push({ sender: "ai", content: "[audio]", type: "audio", timestamp: new Date() });
+        await session.save();
         return;
       }
 
