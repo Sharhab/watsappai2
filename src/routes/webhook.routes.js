@@ -123,9 +123,10 @@ r.post("/webhook", withTenant, async (req, res) => {
 session.conversationHistory.push({
   sender: "customer",
   content: incomingMsg,
-  type: numMedia ? "voice" : "text",
+  type: numMedia ? "audio" : "text", // ✅ FIXED
   timestamp: new Date(),
 });
+
 await session.save();
 
         await session.save();
