@@ -124,64 +124,72 @@ r.post("/webhook", withTenant, async (req, res) => {
         await session.save();
       }
 
-// ✅ INTRO — FINAL ORDER-SAFE VERSION
-if (!session.hasReceivedWelcome) {
+      // ✅ ✅ ✅ INTRO with FORCE ENCODE FIX
+      if (!session.hasReceivedWelcome) {
 
-  if (templateSid) {
-    const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-    await waitForDelivered(sid?.sid);
-    await sleep(INTRO_TEMPLATE_DELAY + jitter());
-  }
+        if (templateSid) {
+          const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+          await waitForDelivered(sid?.sid);
+          await sleep(INTRO_TEMPLATE_DELAY + jitter());
+        }
 
-  const intro = await Intro.findOne();
-  if (intro?.sequence?.length) {
-    for (const step of intro.sequence) {
+        const intro = await Intro.findOne();
 
-      if (step.type === "text") {
-        const sid = await sendWithRetry({
-          from: fromWhatsApp,
-          to: From,
-          body: step.content,
-          ...(statusCallback ? { statusCallback } : {}),
-        });
+        if (intro?.sequence?.length) {
+          for (const step of intro.sequence) {
 
-        await waitForDelivered(sid?.sid || sid);
-        await sleep(INTRO_TEXT_DELAY + jitter());
+            // TEXT
+            if (step.type === "text") {
+              const sid = await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
+              await waitForDelivered(sid?.sid || sid);
+              await sleep(INTRO_TEXT_DELAY + jitter());
+            }
+
+            // ✅ MEDIA — FORCE RE-ENCODE EVERY TIME
+            else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
+
+              let url = toAbsoluteUrl(step.fileUrl);
+
+              try {
+                const tmp = `./intro_${Date.now()}`;
+                const res = await fetch(url);
+                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+
+                // 🔥 Always encode according to WhatsApp-safe spec
+                const converted = await encodeForWhatsApp(tmp, step.type);
+                const uploaded = await uploadToCloudinary(fs.readFileSync(converted), step.type, "intro_media");
+
+                url = uploaded;
+
+                fs.unlinkSync(tmp);
+                fs.unlinkSync(converted);
+              } catch (err) {
+                console.error("⚠️ Forced intro re-encode failed — sending original:", err);
+              }
+
+              const sid = await sendWithRetry({
+                from: fromWhatsApp,
+                to: From,
+                mediaUrl: [url],
+                ...(statusCallback ? { statusCallback } : {}),
+              });
+
+              await waitForDelivered(sid?.sid || sid);
+              await sleep(INTRO_MEDIA_DELAY + jitter());
+            }
+
+            session.conversationHistory.push({ sender: "ai", content: step.content || `[${step.type}]`, type: step.type, timestamp: new Date() });
+            await session.save();
+          }
+        }
+
+        session.hasReceivedWelcome = true;
+        await session.save();
+        return;
       }
 
-      else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-
-        const url = toAbsoluteUrl(step.fileUrl);
-
-        const sid = await sendWithRetry({
-          from: fromWhatsApp,
-          to: From,
-          mediaUrl: [url],
-          ...(statusCallback ? { statusCallback } : {}),
-        });
-
-        // ✅ This ensures Twilio completes sending before next step
-        await waitForDelivered(sid?.sid || sid);
-
-        await sleep(INTRO_MEDIA_DELAY + jitter());
-      }
-
-      session.conversationHistory.push({
-        sender: "ai",
-        content: step.content || `[${step.type}]`,
-        type: step.type,
-        timestamp: new Date(),
-      });
-      await session.save();
-    }
-  }
-
-  session.hasReceivedWelcome = true;
-  await session.save();
-  return;
-}
-
-     // ✅ 24-HOUR REOPEN
+      
+      // ✅ 24-HOUR REOPEN
       if (session.conversationHistory.length > 0) {
         const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
         const hours = (Date.now() - new Date(lastMsg.timestamp)) / 36e5;
