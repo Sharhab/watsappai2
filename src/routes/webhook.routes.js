@@ -157,12 +157,10 @@ r.post("/webhook", withTenant, async (req, res) => {
 
                 // 🔥 Always encode according to WhatsApp-safe spec
                 const converted = await encodeForWhatsApp(tmp, step.type);
-                const uploaded = await uploadToCloudinary(fs.readFileSync(converted), step.type, "intro_media");
 
-                url = uploaded;
+                url = converted;
 
                 fs.unlinkSync(tmp);
-                fs.unlinkSync(converted);
               } catch (err) {
                 console.error("⚠️ Forced intro re-encode failed — sending original:", err);
               }
