@@ -1,7 +1,8 @@
 import { v2 as cloudinary } from "cloudinary";
 import streamifier from "streamifier";
+import fs from "fs";
+import { encodeForWhatsApp } from "./encodeForWhatsApp.js";
 
-// ✅ configure from env
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -9,42 +10,49 @@ cloudinary.config({
 });
 
 /**
- * Upload a buffer to Cloudinary
- * @param {Buffer} fileBuffer - the file buffer
- * @param {"image" | "video" | "audio" | "auto"} type - file type
- * @param {string} folder - Cloudinary folder name
- * @returns {Promise<string>} secure_url of the uploaded file
+ * Upload + encode for WhatsApp BEFORE storing in Cloudinary
+ * @param {Buffer} fileBuffer
+ * @param {"image" | "video" | "audio"} type
+ * @param {string} folder
  */
 async function uploadToCloudinary(fileBuffer, type = "auto", folder = "uploads") {
-  return new Promise((resolve, reject) => {
-    // Force resource_type for audio/video
-    let resourceType = "auto";
-    if (type === "video" || type === "audio") {
-      resourceType = "video"; // ✅ Cloudinary treats both mp3 + mp4 as video
-    } else if (type === "image") {
-      resourceType = "image";
-    }
+  let processedBuffer = fileBuffer;
 
+  // ✅ If media is audio or video → Encode to WhatsApp safe format first
+  if (type === "video" || type === "audio") {
+    const tmpInput = `./tmp_input_${Date.now()}`;
+    const tmpOutputType = type === "video" ? ".mp4" : ".mp3";
+    const tmpOutput = `./tmp_output_${Date.now()}${tmpOutputType}`;
+
+    // Save input to temp file
+    fs.writeFileSync(tmpInput, fileBuffer);
+
+    // Convert
+    const encodedPath = await encodeForWhatsApp(tmpInput, type);
+
+    // Replace buffer with optimized output
+    processedBuffer = fs.readFileSync(encodedPath);
+
+    // Cleanup
+    fs.unlinkSync(tmpInput);
+    fs.unlinkSync(encodedPath);
+  }
+
+  let resourceType = "auto";
+  if (type === "video" || type === "audio") resourceType = "video";
+  if (type === "image") resourceType = "image";
+
+  return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        resource_type: resourceType,
-        folder, // dynamic folder (intro_steps, receipts, etc.)
-        transformation:
-          resourceType === "image"
-            ? [{ width: 1200, crop: "limit", quality: "auto" }] // ✅ resize/compress images for OCR
-            : undefined,
-      },
+      { resource_type: resourceType, folder },
       (error, result) => {
-        if (error) {
-          console.error("❌ Cloudinary upload failed:", error);
-          return reject(error);
-        }
+        if (error) return reject(error);
         console.log("☁️ Cloudinary upload success:", result.secure_url);
         resolve(result.secure_url);
       }
     );
 
-    streamifier.createReadStream(fileBuffer).pipe(uploadStream);
+    streamifier.createReadStream(processedBuffer).pipe(uploadStream);
   });
 }
 
