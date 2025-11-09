@@ -120,7 +120,12 @@ r.post("/webhook", withTenant, async (req, res) => {
       if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
 
       if (normalizeText(incomingMsg)) {
-        session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
+session.conversationHistory.push({
+  sender: "user",
+  content: incomingMsg,
+  type: numMedia ? "audio" : "text",
+  timestamp: new Date(),
+});
         await session.save();
       }
 
@@ -177,13 +182,13 @@ r.post("/webhook", withTenant, async (req, res) => {
               await waitForDelivered(sid?.sid || sid);
               await sleep(INTRO_MEDIA_DELAY + jitter());
             }
-
-           session.conversationHistory.push({
+session.conversationHistory.push({
   sender: "ai",
   type: step.type,
-  content: step.type === "text" ? step.content : step.fileUrl,
+  content: step.type === "text" ? step.content : url,  // ✅ use the real playable link
   timestamp: new Date(),
 });
+
 await session.save();
 
           }
