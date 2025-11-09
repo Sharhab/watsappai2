@@ -23,24 +23,24 @@ async function startServer() {
 
   // Security
   app.use(helmet());
-  app.use(express.json({ limit: "10mb" }));
+  app.use(express.json({ limit: "200mb" }));
   app.use(express.urlencoded({ extended: true }));
 
 
   // CORS
   app.use(
-    cors({
-      origin: [
-        "http://localhost:5173",
-        "https://watsappai.onrender.com",
-                "https://watsappai2.onrender.com"
-
-      ],
-      credentials: true,
-      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization", "x-tenant-id"],
-    })
-  );
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://watsappai.onrender.com",
+      "https://watsappai2.onrender.com",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-tenant-id"],
+   exposedHeaders: ["Authorization"]
+  })
+);
 
   // ✅ Master DB (tenants + users)
   try {

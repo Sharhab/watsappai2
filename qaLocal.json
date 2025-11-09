@@ -1,0 +1,562 @@
+[
+  {
+    "_id": "690843cf5688e414de66981e",
+    "question": "Al'aurata tana kankancewa, maganin istimina I, Ina butar wannan magnin, ya ake samunsa, a Ina kuke ",
+    "answerText": "Eh, muna da magani da ke taimakawa wajen dawo da girma da ƙarfafa al'aurar namiji.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758180823/intro_steps/rnbrbyscwweiqglzqwr3.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669823",
+    "question": "Ni daga Kano nake, ina kano, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Kano. Muna da motocinmu daga Kaduna da ke zuwa Kano, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758181128/intro_steps/pw8naivbg3b5v5brdedk.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669828",
+    "question": "Ni daga Ngaoundéré nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Ngaoundéré. Muna da hanyoyi daga Najeriya zuwa Ngaoundéré, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66982d",
+    "question": "Ni daga Bauchi nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Bauchi. Muna da motocinmu daga Kaduna da ke zuwa Bauchi, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183319/intro_steps/lqkmpanckdoxpeznzbbt.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669833",
+    "question": "Ni daga FCT Abuja nake, ina nan abuja za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani FCT Abuja. Muna da motocinmu daga Kaduna da ke zuwa FCT Abuja, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758181038/intro_steps/tc36lywgoxl6llexrafy.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669834",
+    "question": "Ni daga Imo nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Imo. Muna da motocinmu daga Kaduna da ke zuwa Imo, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669835",
+    "question": "Ni daga Oyo nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Oyo. Muna da motocinmu daga Kaduna da ke zuwa Oyo, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669836",
+    "question": "Ni daga Agadez nake a Nijar, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Agadez. Muna da hanyoyi daga Najeriya zuwa Agadez, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183691/intro_steps/up0rcpxfkxgijowqe7ch.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66983a",
+    "question": "Ni daga yankin Centre na Kamaru nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Centre. Motoci daga Najeriya suna zuwa Centre, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66983e",
+    "question": "Ok to a kudin mu na Niger sefa nawa ne, lissafin sefa ya zai kama kenan kasan kudin mu nan da sefa na muka aiki",
+    "answerText": "Ok jikka 15000 sefa shine kudin amma Ana iya biya a wannan \r\n\r\n7065602624 sharhabilu muktar sidi\r\nKaduna ",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669844",
+    "question": "Yaya sauri zan fara ganin sakamako? Yaushe zan fara ganin changin",
+    "answerText": "Mutane da yawa suna fara ganin canji cikin kwanaki ko makonni, bisa ga yanayin jikinsu.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758138970/intro_steps/tcvcjfeh8rkyskelu3za.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669845",
+    "question": "Ni daga Adamawa nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Adamawa. Muna da motocinmu daga Kaduna da ke zuwa Adamawa, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758180857/intro_steps/qb6shk6ouzwtkrstvcbh.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669848",
+    "question": "Ni daga Lagos nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Lagos. Muna da motocinmu daga Kaduna da ke zuwa Lagos, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183522/intro_steps/nrfftsylpaxsbdogk4gr.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66984e",
+    "question": "Ni daga yankin Adamawa na Kamaru nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Adamawa. Motoci daga Najeriya suna zuwa Adamawa, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66984f",
+    "question": "Ni daga Yaoundé nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Yaoundé. Muna da hanyoyi daga Najeriya zuwa Yaoundé, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669850",
+    "question": "Ni daga Maroua nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Maroua. Muna da hanyoyi daga Najeriya zuwa Maroua, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669851",
+    "question": "Ni daga Buea nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Buea. Muna da hanyoyi daga Najeriya zuwa Buea, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669853",
+    "question": "Ina yawonde, ina garwa, ina gaunder, in duala, ina morwa, ina kusri,",
+    "answerText": "Ok tom ba matsala muna sa kayan GA direban zamu turo maka number dinsa ",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758272202/intro_steps/pxugdcxbnwmywqulkzw6.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669862",
+    "question": "Ni daga Ogun nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Ogun. Muna da motocinmu daga Kaduna da ke zuwa Ogun, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669868",
+    "question": "Ni daga Bafoussam nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Bafoussam. Muna da hanyoyi daga Najeriya zuwa Bafoussam, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66986c",
+    "question": "Nima a a kaduna nake a wace uguwa ne office dinkum yake anan ",
+    "answerText": "Ok muna rafin guza layin ruga ne opposite masallaci \r\nZaka izuwa ko ka bada address Inda kake sai mu turo a kawo maka\r\nKira 0706 560 2624 ",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758429820/intro_steps/n7ezw6elmerppaqcchbs.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66981f",
+    "question": "Ni daga Borno nake, ni ina maiduguri ne za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Borno. Muna da motocinmu daga Kaduna da ke zuwa Borno, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758180973/intro_steps/o8od2ocpkpq225gtsuno.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669820",
+    "question": "Ni daga Cross River nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Cross River. Muna da motocinmu daga Kaduna da ke zuwa Cross River, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66982b",
+    "question": "Ni daga Akwa Ibom nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Akwa Ibom. Muna da motocinmu daga Kaduna da ke zuwa Akwa Ibom, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66982c",
+    "question": "Ni daga Anambra nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Anambra. Muna da motocinmu daga Kaduna da ke zuwa Anambra, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669831",
+    "question": "Ni daga Ekiti nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Ekiti. Muna da motocinmu daga Kaduna da ke zuwa Ekiti, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669832",
+    "question": "Ni daga Enugu nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Enugu. Muna da motocinmu daga Kaduna da ke zuwa Enugu, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669841",
+    "question": "Assalamu Alaikum, gaskiyar mgn shine, Ina fama da kankancawar mazakuta ga rshin Sha awa abin bamagana,to Amma fa nayi amfanida magani da ban daban, sai kamar nadace Amma shiru maineme gudun mowar ka,wato mgn da zaka bani don magance wannan matsalar tawa, kuma  maike kawo wannan matsalar ayawancin maza, wasalam.",
+    "answerText": "Wslm tom duk naji bayaninka \r\nInsha ALLAH kazo inda zaka Sami magani insha ALLAH. ",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758879279/uploads/ii7qjmwredkjuzkwe8n7.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669842",
+    "question": "Na gwada wasu magunguna amma ba su yi aiki ba, me ya bambanta naku?",
+    "answerText": "Maganinmu na ganye ne tsantsa ba tare da sinadarai ba. Yana magance matsalar daga tushe ba wai kawai na ɗan lokaci ba.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758138924/intro_steps/lwfvcojproz3ttmz6a7h.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669846",
+    "question": "Ni daga Bayelsa nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Bayelsa. Muna da motocinmu daga Kaduna da ke zuwa Bayelsa, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66984b",
+    "question": "Ni daga Plateau nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Plateau. Muna da motocinmu daga Kaduna da ke zuwa Plateau, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669855",
+    "question": "Na taba tura kudi ba a kawoman ba, wannan akwai masu cuter mutane masu damfara shiya abin yake bani shakku na tura kudi sai ya daina daga wayana Idan masa Maga baya reply yayi block dina",
+    "answerText": "INSHA ALLAH ANAN BA ZAKA SAMI MATSALA BA MUNA SAMUN IRIN WANNAN KORAFI ",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669859",
+    "question": "Menene mafi ƙarancin farashin maganin? Adan rage man wani abu sai in turo",
+    "answerText": "Mafi ƙarancin farashi ya danganta da adadin da ka saya. Muna ƙoƙarin ba da mafi rahusa da zai dace da kai.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758138564/intro_steps/bfqtic3bjhnsmmoq1tk4.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669860",
+    "question": "Ni daga Kogi nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Kogi. Muna da motocinmu daga Kaduna da ke zuwa Kogi, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669863",
+    "question": "Ni daga Ondo nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Ondo. Muna da motocinmu daga Kaduna da ke zuwa Ondo, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66986a",
+    "question": "Ni daga Kumba nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Kumba. Muna da hanyoyi daga Najeriya zuwa Kumba, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669822",
+    "question": "Ni daga Kaduna nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Kaduna. Muna da motocinmu daga Kaduna da ke zuwa Kaduna, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183392/intro_steps/io6lme4ck0zxianhhsrp.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669825",
+    "question": "Ni daga Diffa nake a Nijar, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Diffa. Muna da hanyoyi daga Najeriya zuwa Diffa, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183768/intro_steps/kavqlcrc7aevv75ovies.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669826",
+    "question": "Ni daga Dosso nake a Nijar, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Dosso. Muna da hanyoyi daga Najeriya zuwa Dosso, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183996/intro_steps/bdwkscpzqhbfhzlonbcc.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669827",
+    "question": "Ni daga Maradi nake a Nijar, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Maradi. Muna da hanyoyi daga Najeriya zuwa Maradi, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183851/intro_steps/lydw5he1s0idhbaajw3k.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669829",
+    "question": "ina son guda biyu ne ina son guda ukku ina son dayawa ne nawa za a barmini idan zan siya da yawa ",
+    "answerText": "eh to zamu iya barmaka akan 30, 000 don wannan din kaima akan sari ne muka baka ko guda nawa ne kake so ",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66982a",
+    "question": "Yaya tabbacin wannan magani? yaya ingancin maganin yake yana kara girmana gaba ",
+    "answerText": "Mun tabbatar maka da inganci. Idan bai yi maka aiki ba, zamu ci gaba da taimaka maka har sai ka ga sakamako.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758138466/intro_steps/gwkdmdxzbpiqjxwwqipq.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669837",
+    "question": "Ni daga Tahoua nake a Nijar, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Tahoua. Muna da hanyoyi daga Najeriya zuwa Tahoua, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183963/intro_steps/xgexqbubft7qynzoeji0.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66983c",
+    "question": "Ni daga Garoua nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Garoua. Muna da hanyoyi daga Najeriya zuwa Garoua, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669840",
+    "question": "Ok yanzu Bana gari amma zan tura ma Idan nadawo sai a aiko man dashi ",
+    "answerText": "Ok tom wannan ba matsa la amma a tura mana reciept din anan insha ALLAH ",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669847",
+    "question": "Ni daga Edo nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Edo. Muna da motocinmu daga Kaduna da ke zuwa Edo, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66984a",
+    "question": "Ni daga Osun nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Osun. Muna da motocinmu daga Kaduna da ke zuwa Osun, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66984c",
+    "question": "Ni daga Taraba nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Taraba. Muna da motocinmu daga Kaduna da ke zuwa Taraba, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758184194/intro_steps/evtydezv09cy0rvckpya.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669852",
+    "question": "Ina Niamey,  ina diffa, ina tawa, ina maradi, ina Yemen ina arlit, ina gadez, ",
+    "answerText": "Ok tom ba laifi gidan rimbo zasu kiraka sakon na isowa",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669857",
+    "question": "Aslm, Wai dan Allah idan mutum yakai kamar shekara 8 yana aikata istimina'i, kuma yafara kusan tin be gama balaga ba, yasamar matsololi dayawa kamar karancin Mani, tsikewar Mani, kankancewar gaba sosai babu kauri babu tsayi, saurin kawowa, shin tsakani da Allah akwai maganin da zemasa magani har ya iyayin aurw ya gamsar da iyalinsa, kuma ze iya samun lafiyar da zai iya aihuwa?",
+    "answerText": "Insha ALLAH,  muna maganin da zamu daura ka akai wannan mu Bawa mutane dama kuma sun Sami lafiya, muna yakinin kaima Insha ALLAH zai maka aiki.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758879438/uploads/vtj3mboidzbkeg9fd15z.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66985a",
+    "question": "Yaya ake amfani da maganin? Yaya ake shan magani",
+    "answerText": "Amfani yana da sauƙi. Muna turo maka da cikakken bayani tare da maganin. Ka bi umarnin, zaka ga sakamako.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758138848/intro_steps/ouwhsneb2u0q4beuwdlq.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66985c",
+    "question": "Ni daga Abia nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Abia. Muna da motocinmu daga Kaduna da ke zuwa Abia, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66985d",
+    "question": "Ni daga Gombe nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Gombe. Muna da motocinmu daga Kaduna da ke zuwa Gombe, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183356/intro_steps/ulqjzh6cvtapzeymv02u.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66985e",
+    "question": "Ni daga Katsina nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Katsina. Muna da motocinmu daga Kaduna da ke zuwa Katsina, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183416/intro_steps/njyrawbyvw2uza1vykjc.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66985f",
+    "question": "Ni daga Kebbi nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Kebbi. Muna da motocinmu daga Kaduna da ke zuwa Kebbi, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183443/intro_steps/wbvjzqc87kmplrjdj3rn.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669864",
+    "question": "Ni daga Rivers nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Rivers. Muna da motocinmu daga Kaduna da ke zuwa Rivers, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669866",
+    "question": "Ni daga Yobe nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Yobe. Muna da motocinmu daga Kaduna da ke zuwa Yobe, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66981d",
+    "question": "Zan iya biyan kudi bayan an kawo min? Wasu sai ankawo ake biya, Idan ankowo man zan biya sai na amshi magani",
+    "answerText": "Eh, a mafi yawan wurare zaka iya biyan kuɗi bayan an kawo maka. Amma a wasu wurare, sai an biya kafin a turo.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758139004/intro_steps/s2ewyau8u0m7duzoxwiz.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669821",
+    "question": "Ni daga Jigawa nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Jigawa. Muna da motocinmu daga Kaduna da ke zuwa Jigawa, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183321/intro_steps/iddy9rzouk1dvvtpfbdp.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669824",
+    "question": "Ni daga Kwara nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Kwara. Muna da motocinmu daga Kaduna da ke zuwa Kwara, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66982e",
+    "question": "Ni daga Benue nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Benue. Muna da motocinmu daga Kaduna da ke zuwa Benue, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66982f",
+    "question": "Ni daga Delta nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Delta. Muna da motocinmu daga Kaduna da ke zuwa Delta, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669830",
+    "question": "Ni daga Ebonyi nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Ebonyi. Muna da motocinmu daga Kaduna da ke zuwa Ebonyi, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669838",
+    "question": "Ni daga Tillabéri nake a Nijar, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Tillabéri. Muna da hanyoyi daga Najeriya zuwa Tillabéri, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669839",
+    "question": "Ni daga Niamey nake a Nijar, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Niamey. Muna da hanyoyi daga Najeriya zuwa Niamey, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183809/intro_steps/yruur3rxbci1tzuldsdz.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66983b",
+    "question": "Ni daga Douala nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Douala. Muna da hanyoyi daga Najeriya zuwa Douala, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66983d",
+    "question": "Ina yobe, Ina damaturu, Ina mubi, Ina zaria, Ina local government na Ina ogun , in osun, Ina jos, Ina platue,  Ina edo, Ina ogere, Ina kwara, Ina gembu, Ina kontagora, Ina Mina",
+    "answerText": "Ok tom ba damuwa da zarar ankai Tasha zamu hada ka da direba.INSHA ALLAH ",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66983f",
+    "question": "Ina son Karin bayani Akan magunguna da ji Kuna talla ",
+    "answerText": "Ok tom GA Karin bayani dan gani da maganin",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758297696/intro_steps/hc1pbynwp7szzuynxp1n.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669843",
+    "question": "Shin wannan magani yana da illa? Yana da wani side effects ",
+    "answerText": "A’a, maganinmu na tsantsar ganye ne. Babu illa, lafiya ne ga kowanne mutum.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758138718/intro_steps/seezw8nacr8axic5wovg.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669849",
+    "question": "Ni daga Nasarawa nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Nasarawa. Muna da motocinmu daga Kaduna da ke zuwa Nasarawa, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758181494/intro_steps/lzxrtnlud4k5mtl1lyet.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66984d",
+    "question": "Ni daga Zinder nake a Nijar, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Zinder. Muna da hanyoyi daga Najeriya zuwa Zinder, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183911/intro_steps/qdek0hfbqkobcqahelhj.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669854",
+    "question": "assalamu alaikum barka ya kasuwa to naji duk bayanin dakayi amma ni matsalata kankancewar gaba ne da saurin inzali, sha awa ta tana daukewa kuma ba na iya biyan bukata, ",
+    "answerText": "muna da da yakini akan hadin da zamu baka insha ALLAH wannan matsala ta kare anan ",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758233519/intro_steps/gpoke636dq7euw23z8i8.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669856",
+    "question": "Aslamu alaikum barka, kwana biyu ka jini shiru kudin kudaden ne nake hadawa amma yau zan turo maka insha ALLAH sai a aikoman ",
+    "answerText": "Ok tom insha ALLAH ba matsala,  sai ka aiko da recipt din naka Idan ansaka Mota zan tura maka number na direban",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669858",
+    "question": "Farashin ya yi yawa, za a iya ragewa?",
+    "answerText": "Mun fahimci damuwarka. Wasu lokuta muna ragewa bisa la’akari da halin da kake ciki da kuma irin kunshin da za ka saya.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758138524/intro_steps/rogdvlxuttyvpvr21xhk.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66985b",
+    "question": "Ta yaya zan biya? Zan turo yanzu abani account ",
+    "answerText": "Za ka biya kuɗi ta hanyar asusun banki: 31050108950, First Bank, Sharharhabilu Muktar Sidi. Bayan biyan, a turo receipt da sunan garinka.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758180649/intro_steps/jo4iy16ath3zatss7ghe.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669861",
+    "question": "Ni daga Niger nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Niger. Muna da motocinmu daga Kaduna da ke zuwa Niger, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183492/intro_steps/y5agniikex1n1slts8zt.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669865",
+    "question": "Ni daga Sokoto nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Sokoto. Muna da motocinmu daga Kaduna da ke zuwa Sokoto, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183598/intro_steps/da9w1zhsvl7p4q6fhlog.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669867",
+    "question": "Ni daga Zamfara nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Zamfara. Muna da motocinmu daga Kaduna da ke zuwa Zamfara, kuma za mu baka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": "https://res.cloudinary.com/dbwsyvgfu/video/upload/v1758183646/intro_steps/tursezdohuaabbmdcnzt.mp4",
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de669869",
+    "question": "Ni daga Bamenda nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Bamenda. Muna da hanyoyi daga Najeriya zuwa Bamenda, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  },
+  {
+    "_id": "690843cf5688e414de66986b",
+    "question": "Ni daga Ebolowa nake, za ku kawo min magani?",
+    "answerText": "Eh, muna kai magani Ebolowa. Muna da hanyoyi daga Najeriya zuwa Ebolowa, kuma za mu turo maka lambar direbanmu bayan ka tabbatar da biyan kuɗi.",
+    "answerAudio": null,
+    "type": "qa"
+  }
+]

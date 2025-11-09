@@ -131,68 +131,75 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ✅ ✅ ✅ INTRO with FORCE ENCODE FIX
-      if (!session.hasReceivedWelcome) {
+     
+       // ✅ INTRO — Send Pre-Encoded Media (No Re-Encode, No Re-Upload)
+if (!session.hasReceivedWelcome) {
 
-        if (templateSid) {
-          const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-          await waitForDelivered(sid?.sid);
-          await sleep(INTRO_TEMPLATE_DELAY + jitter());
-        }
+  // Optional template greeting
+  if (templateSid) {
+    const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+    await waitForDelivered(sid?.sid);
+    await sleep(INTRO_TEMPLATE_DELAY + jitter());
+  }
 
-        const intro = await Intro.findOne();
+  const intro = await Intro.findOne();
+  if (intro?.sequence?.length) {
+    for (const step of intro.sequence) {
 
-        if (intro?.sequence?.length) {
-          for (const step of intro.sequence) {
+      // ✅ TEXT STEP
+      if (step.type === "text") {
+        const sid = await sendWithRetry({
+          from: fromWhatsApp,
+          to: From,
+          body: step.content,
+          ...(statusCallback ? { statusCallback } : {}),
+        });
 
-            // TEXT
-            if (step.type === "text") {
-              const sid = await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
-              await waitForDelivered(sid?.sid || sid);
-              await sleep(INTRO_TEXT_DELAY + jitter());
-            }
+        session.conversationHistory.push({
+          sender: "ai",
+          type: "text",
+          content: step.content,
+          timestamp: new Date(),
+        });
 
-            // ✅ MEDIA — FORCE RE-ENCODE EVERY TIME
-            else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-
-              let url = toAbsoluteUrl(step.fileUrl);
-
-              try {
-                const tmp = `./intro_${Date.now()}`;
-                const res = await fetch(url);
-                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-
-                // 🔥 Always encode according to WhatsApp-safe spec
-                const converted = await encodeForWhatsApp(tmp, step.type);
-                const uploaded = await uploadToCloudinary(fs.readFileSync(converted), step.type, "intro_media");
-
-                url = uploaded;
-
-                fs.unlinkSync(tmp);
-                fs.unlinkSync(converted);
-              } catch (err) {
-                console.error("⚠️ Forced intro re-encode failed — sending original:", err);
-              }
-
-              const sid = await sendWithRetry({
-                from: fromWhatsApp,
-                to: From,
-                mediaUrl: [url],
-                ...(statusCallback ? { statusCallback } : {}),
-              });
-
-              await waitForDelivered(sid?.sid || sid);
-              await sleep(INTRO_MEDIA_DELAY + jitter());
-            }
-
-            session.conversationHistory.push({ sender: "ai", content: step.content || `[${step.type}]`, type: step.type, timestamp: new Date() });
-            await session.save();
-          }
-        }
-
-        session.hasReceivedWelcome = true;
         await session.save();
-        return;
+        await waitForDelivered(sid?.sid || sid);
+        await sleep(INTRO_TEXT_DELAY + jitter());
+        continue;
       }
+
+      // ✅ MEDIA STEP (video / audio) — Already WhatsApp Safe
+      if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
+
+        const url = toAbsoluteUrl(step.fileUrl);
+
+        const sid = await sendWithRetry({
+          from: fromWhatsApp,
+          to: From,
+          mediaUrl: [url],
+          ...(statusCallback ? { statusCallback } : {}),
+        });
+
+        session.conversationHistory.push({
+          sender: "ai",
+          type: step.type,
+          content: url, // store final playable cloud URL
+          timestamp: new Date(),
+        });
+
+        await session.save();
+        await waitForDelivered(sid?.sid || sid);
+        await sleep(INTRO_MEDIA_DELAY + jitter());
+        continue;
+      }
+    }
+  }
+
+  session.hasReceivedWelcome = true;
+  await session.save();
+  return;
+}
+
 
       
       // ✅ 24-HOUR REOPEN
