@@ -124,70 +124,58 @@ r.post("/webhook", withTenant, async (req, res) => {
         await session.save();
       }
 
-      // ✅ ✅ ✅ INTRO with FORCE ENCODE FIX
-      if (!session.hasReceivedWelcome) {
+     // ✅ INTRO — optimized (no encoding, instant send)
+if (!session.hasReceivedWelcome) {
 
-        if (templateSid) {
-          const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-          await waitForDelivered(sid?.sid);
-          await sleep(INTRO_TEMPLATE_DELAY + jitter());
-        }
+  // Optional: send WhatsApp template first
+  if (templateSid) {
+    await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+    await new Promise(r => setTimeout(r, INTRO_DELAY));
+  }
 
-        const intro = await Intro.findOne();
+  const intro = await Intro.findOne();
 
-        if (intro?.sequence?.length) {
-          for (const step of intro.sequence) {
+  if (intro?.sequence?.length) {
+    for (const step of intro.sequence) {
 
-            // TEXT
-            if (step.type === "text") {
-              const sid = await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
-              await waitForDelivered(sid?.sid || sid);
-              await sleep(INTRO_TEXT_DELAY + jitter());
-            }
-
-            // ✅ MEDIA — FORCE RE-ENCODE EVERY TIME
-            else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-
-              let url = toAbsoluteUrl(step.fileUrl);
-
-              try {
-                const tmp = `./intro_${Date.now()}`;
-                const res = await fetch(url);
-                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-
-                // 🔥 Always encode according to WhatsApp-safe spec
-                const converted = await encodeForWhatsApp(tmp, step.type);
-                const uploaded = await uploadToCloudinary(fs.readFileSync(converted), step.type, "intro_media");
-
-                url = uploaded;
-
-                fs.unlinkSync(tmp);
-                fs.unlinkSync(converted);
-              } catch (err) {
-                console.error("⚠️ Forced intro re-encode failed — sending original:", err);
-              }
-
-              const sid = await sendWithRetry({
-                from: fromWhatsApp,
-                to: From,
-                mediaUrl: [url],
-                ...(statusCallback ? { statusCallback } : {}),
-              });
-
-              await waitForDelivered(sid?.sid || sid);
-              await sleep(INTRO_MEDIA_DELAY + jitter());
-            }
-
-            session.conversationHistory.push({ sender: "ai", content: step.content || `[${step.type}]`, type: step.type, timestamp: new Date() });
-            await session.save();
-          }
-        }
-
-        session.hasReceivedWelcome = true;
-        await session.save();
-        return;
+      if (step.type === "text") {
+        await sendWithRetry({
+          from: fromWhatsApp,
+          to: From,
+          body: step.content,
+          ...(statusCallback ? { statusCallback } : {})
+        });
       }
 
+      else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
+        // ✅ Now sending already-optimized media directly — no conversion
+        const url = toAbsoluteUrl(step.fileUrl);
+        await sendWithRetry({
+          from: fromWhatsApp,
+          to: From,
+          mediaUrl: [url],
+          ...(statusCallback ? { statusCallback } : {})
+        });
+      }
+
+      // Log into conversation history
+      session.conversationHistory.push({
+        sender: "ai",
+        content: step.content || `[${step.type}]`,
+        type: step.type,
+        timestamp: new Date(),
+      });
+      await session.save();
+
+      // Keep delay small but consistent
+      await new Promise(r => setTimeout(r, INTRO_DELAY));
+    }
+  }
+
+  session.hasReceivedWelcome = true;
+  await session.save();
+  return;
+}
       
       // ✅ 24-HOUR REOPEN
       if (session.conversationHistory.length > 0) {
