@@ -124,41 +124,48 @@ r.post("/webhook", withTenant, async (req, res) => {
         await session.save();
       }
 
-     // ✅ INTRO — optimized (no encoding, instant send)
+// ✅ INTRO — FINAL ORDER-SAFE VERSION
 if (!session.hasReceivedWelcome) {
 
-  // Optional: send WhatsApp template first
   if (templateSid) {
-    await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-    await new Promise(r => setTimeout(r, INTRO_DELAY));
+    const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+    await waitForDelivered(sid?.sid);
+    await sleep(INTRO_TEMPLATE_DELAY + jitter());
   }
 
   const intro = await Intro.findOne();
-
   if (intro?.sequence?.length) {
     for (const step of intro.sequence) {
 
       if (step.type === "text") {
-        await sendWithRetry({
+        const sid = await sendWithRetry({
           from: fromWhatsApp,
           to: From,
           body: step.content,
-          ...(statusCallback ? { statusCallback } : {})
+          ...(statusCallback ? { statusCallback } : {}),
         });
+
+        await waitForDelivered(sid?.sid || sid);
+        await sleep(INTRO_TEXT_DELAY + jitter());
       }
 
       else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-        // ✅ Now sending already-optimized media directly — no conversion
+
         const url = toAbsoluteUrl(step.fileUrl);
-        await sendWithRetry({
+
+        const sid = await sendWithRetry({
           from: fromWhatsApp,
           to: From,
           mediaUrl: [url],
-          ...(statusCallback ? { statusCallback } : {})
+          ...(statusCallback ? { statusCallback } : {}),
         });
+
+        // ✅ This ensures Twilio completes sending before next step
+        await waitForDelivered(sid?.sid || sid);
+
+        await sleep(INTRO_MEDIA_DELAY + jitter());
       }
 
-      // Log into conversation history
       session.conversationHistory.push({
         sender: "ai",
         content: step.content || `[${step.type}]`,
@@ -166,9 +173,6 @@ if (!session.hasReceivedWelcome) {
         timestamp: new Date(),
       });
       await session.save();
-
-      // Keep delay small but consistent
-      await new Promise(r => setTimeout(r, INTRO_DELAY));
     }
   }
 
@@ -176,8 +180,8 @@ if (!session.hasReceivedWelcome) {
   await session.save();
   return;
 }
-      
-      // ✅ 24-HOUR REOPEN
+
+     // ✅ 24-HOUR REOPEN
       if (session.conversationHistory.length > 0) {
         const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
         const hours = (Date.now() - new Date(lastMsg.timestamp)) / 36e5;
