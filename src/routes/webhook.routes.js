@@ -178,8 +178,14 @@ r.post("/webhook", withTenant, async (req, res) => {
               await sleep(INTRO_MEDIA_DELAY + jitter());
             }
 
-            session.conversationHistory.push({ sender: "ai", content: step.content || `[${step.type}]`, type: step.type, timestamp: new Date() });
-            await session.save();
+           session.conversationHistory.push({
+  sender: "ai",
+  type: step.type,
+  content: step.type === "text" ? step.content : step.fileUrl,
+  timestamp: new Date(),
+});
+await session.save();
+
           }
         }
 
@@ -214,8 +220,14 @@ r.post("/webhook", withTenant, async (req, res) => {
           fs.unlinkSync(converted);
         }
         await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [url], ...(statusCallback ? { statusCallback } : {}) });
-        session.conversationHistory.push({ sender: "ai", content: "[audio]", type: "audio", timestamp: new Date() });
-        await session.save();
+       session.conversationHistory.push({
+  sender: "ai",
+  type: "audio",
+  content: url, // actual media URL
+  timestamp: new Date(),
+});
+await session.save();
+
         return;
       }
 
