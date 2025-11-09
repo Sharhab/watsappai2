@@ -33,6 +33,7 @@ router.get("/", withTenant, async (req, res) => {
 });
 
 // ✅ GET full conversation by phone
+// ✅ GET full conversation by phone
 router.get("/:phone", withTenant, async (req, res) => {
   try {
     const { CustomerSession } = req.models;
@@ -41,14 +42,21 @@ router.get("/:phone", withTenant, async (req, res) => {
       : `whatsapp:${req.params.phone}`;
 
     const session = await CustomerSession.findOne({ phoneNumber: phone }).lean();
-
     if (!session) {
       return res.status(404).json({ error: "Conversation not found" });
     }
 
+    // ✅ Convert DB entry format → Frontend-friendly format
+    const conversationHistory = (session.conversationHistory || []).map((entry) => ({
+      sender: entry.userMessage ? "user" : "ai",
+      type: entry.messageType || "text",
+      content: entry.userMessage || entry.botReply || "",
+      timestamp: entry.timestamp,
+    }));
+
     res.json({
       phone: session.phoneNumber.replace("whatsapp:", ""),
-      conversationHistory: session.conversationHistory || [],
+      conversationHistory,
     });
 
   } catch (error) {
