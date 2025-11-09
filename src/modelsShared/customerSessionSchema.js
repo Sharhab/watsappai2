@@ -2,17 +2,23 @@ import mongoose from "mongoose";
 
 const conversationEntrySchema = new mongoose.Schema(
   {
-    userMessage: { type: String },
-    botReply: { type: String },
-    messageType: {
+    sender: {
       type: String,
-      enum: ["text", "audio", "video", "image", "file"],
-      default: "text",
+      enum: ["customer", "ai"],
+      required: true,
     },
+    type: {
+      type: String,
+      enum: ["text", "audio", "video", "image"],
+      required: true,
+    },
+    content: { type: String, required: true }, // text or media URL
     timestamp: { type: Date, default: Date.now },
   },
   { _id: false }
 );
+
+
 
 const customerSessionSchema = new mongoose.Schema(
   {
