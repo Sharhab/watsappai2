@@ -3,7 +3,7 @@ import { Router } from "express";
 import Tesseract from "tesseract.js";
 import fetch from "node-fetch";
 import fs from "fs";
-import twilio from "twilio"; // ✅ ADDED
+import twilio from "twilio";
 import { withTenant } from "../middleware/withTenant.js";
 import uploadToCloudinary from "../utils/cloudinaryUpload.js";
 import { transcribeAudio } from "../utils/stt.js";
@@ -16,27 +16,29 @@ const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
 const REENGAGE_TEMPLATE = process.env.WHATSAPP_REENGAGE_TEMPLATE_SID;
 
-// ✅ Twilio Client (for delivery confirmation)
+// Twilio client for delivery checks
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-// ------------ helpers ---------------
+// ---------- helpers ----------
 async function waitForDelivered(messageSid) {
   if (!messageSid) return;
-  for (let i = 0; i < 40; i++) { // max ~20 seconds
+  for (let i = 0; i < 40; i++) {
     try {
       const m = await client.messages(messageSid).fetch();
       if (["sent", "delivered", "read"].includes(m.status)) return;
     } catch {}
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500));
   }
 }
 
 async function withRetry(task, { retries = 2, baseDelayMs = 800 } = {}) {
   let lastErr;
   for (let i = 0; i <= retries; i++) {
-    try { return await task(); } catch (err) {
+    try {
+      return await task();
+    } catch (err) {
       lastErr = err;
-      if (i < retries) await new Promise(r => setTimeout(r, baseDelayMs * (i + 1)));
+      if (i < retries) await new Promise((r) => setTimeout(r, baseDelayMs * (i + 1)));
     }
   }
   throw lastErr;
@@ -69,18 +71,28 @@ async function ensurePublicMedia(url, type) {
   }
 }
 
+// persist a message in session history (keeps schema clean)
+function pushHistory(session, { sender, type, content }) {
+  session.conversationHistory.push({
+    sender,                      // "customer" | "ai"
+    type,                        // "text" | "audio" | "video" | "image" | "file"
+    content: String(content || ""),
+    timestamp: new Date(),
+  });
+}
+
 r.post("/webhook", withTenant, async (req, res) => {
+  try {
+    res.status(200).send("OK");
+  } catch {}
 
-  try { res.status(200).send("OK"); } catch {}
-
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const INTRO_TEMPLATE_DELAY = parseInt(process.env.INTRO_TEMPLATE_DELAY || "1200", 10);
-  const INTRO_TEXT_DELAY     = parseInt(process.env.INTRO_TEXT_DELAY     || "1500", 10);
-  const INTRO_MEDIA_DELAY    = parseInt(process.env.INTRO_MEDIA_DELAY    || "4500", 10);
+  const INTRO_TEXT_DELAY = parseInt(process.env.INTRO_TEXT_DELAY || "1500", 10);
+  const INTRO_MEDIA_DELAY = parseInt(process.env.INTRO_MEDIA_DELAY || "4500", 10);
   const jitter = () => 200 + Math.floor(Math.random() * 400);
 
   (async () => {
-
     const { QA, Intro, CustomerSession, Order } = req.models;
     const { From } = req.body || {};
 
@@ -97,16 +109,21 @@ r.post("/webhook", withTenant, async (req, res) => {
     let incomingMsg = req.body?.Body || "";
 
     try {
-
       // ---------- OCR ----------
       if (numMedia && mediaType.startsWith("image/")) {
         const resp = await fetch(mediaUrl, {
-          headers: { Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64") }
+          headers: { Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64") },
         });
         const buffer = Buffer.from(await resp.arrayBuffer());
         const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
-        const { data: { text }} = await Tesseract.recognize(uploaded, "eng");
-        await Order.create({ phone: From.replace("whatsapp:", ""), receiptUrl: uploaded, receiptExtract: { rawText: text } });
+        const {
+          data: { text },
+        } = await Tesseract.recognize(uploaded, "eng");
+        await Order.create({
+          phone: From.replace("whatsapp:", ""),
+          receiptUrl: uploaded,
+          receiptExtract: { rawText: text },
+        });
       }
 
       // ---------- STT ----------
@@ -117,92 +134,81 @@ r.post("/webhook", withTenant, async (req, res) => {
 
       // ---------- Session ----------
       let session = await CustomerSession.findOne({ phoneNumber: From });
-      if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
+      if (!session) {
+        session = await CustomerSession.create({
+          phoneNumber: From,
+          hasReceivedWelcome: false,
+          conversationHistory: [],
+        });
+      }
 
+      // store incoming message (text or audio transcript)
       if (normalizeText(incomingMsg)) {
-     session.conversationHistory.push({
-  sender: "customer",
-  content: incomingMsg,
-  type: numMedia ? "audio" : "text", // ✅ FIXED
-  timestamp: new Date(),
-});
-
+        pushHistory(session, {
+          sender: "customer",
+          type: numMedia ? "audio" : "text", // "audio" rather than "voice"
+          content: incomingMsg,
+        });
         await session.save();
       }
 
-      // ✅ ✅ ✅ INTRO with FORCE ENCODE FIX
-     
-       // ✅ INTRO — Send Pre-Encoded Media (No Re-Encode, No Re-Upload)
-if (!session.hasReceivedWelcome) {
+      // ---------- INTRO (send already-encoded media; store history correctly) ----------
+      if (!session.hasReceivedWelcome) {
+        if (templateSid) {
+          const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+          await waitForDelivered(sid?.sid);
+          await sleep(INTRO_TEMPLATE_DELAY + jitter());
+        }
 
-  // Optional template greeting
-  if (templateSid) {
-    const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-    await waitForDelivered(sid?.sid);
-    await sleep(INTRO_TEMPLATE_DELAY + jitter());
-  }
+        const intro = await Intro.findOne();
 
-  const intro = await Intro.findOne();
-  if (intro?.sequence?.length) {
-    for (const step of intro.sequence) {
+        if (intro?.sequence?.length) {
+          for (const step of intro.sequence) {
+            // TEXT
+            if (step.type === "text") {
+              const sid = await sendWithRetry({
+                from: fromWhatsApp,
+                to: From,
+                body: step.content || "",
+                ...(statusCallback ? { statusCallback } : {}),
+              });
 
-      // ✅ TEXT STEP
-      if (step.type === "text") {
-        const sid = await sendWithRetry({
-          from: fromWhatsApp,
-          to: From,
-          body: step.content,
-          ...(statusCallback ? { statusCallback } : {}),
-        });
+              pushHistory(session, { sender: "ai", type: "text", content: step.content || "" });
+              await session.save();
 
-        session.conversationHistory.push({
-          sender: "ai",
-          type: "text",
-          content: step.content,
-          timestamp: new Date(),
-        });
+              await waitForDelivered(sid?.sid || sid);
+              await sleep(INTRO_TEXT_DELAY + jitter());
+              continue;
+            }
 
+            // MEDIA (video/audio) — already WhatsApp-safe in storage
+            if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
+              const url = toAbsoluteUrl(step.fileUrl);
+
+              const sid = await sendWithRetry({
+                from: fromWhatsApp,
+                to: From,
+                mediaUrl: [url],
+                ...(statusCallback ? { statusCallback } : {}),
+              });
+
+              // store URL as string (not array)
+              pushHistory(session, { sender: "ai", type: step.type, content: url });
+              await session.save();
+
+              await waitForDelivered(sid?.sid || sid);
+              await sleep(INTRO_MEDIA_DELAY + jitter());
+              continue;
+            }
+          }
+        }
+
+        session.hasReceivedWelcome = true;
         await session.save();
-        await waitForDelivered(sid?.sid || sid);
-        await sleep(INTRO_TEXT_DELAY + jitter());
-        continue;
+        return;
       }
 
-      // ✅ MEDIA STEP (video / audio) — Already WhatsApp Safe
-      if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-
-        const url = toAbsoluteUrl(step.fileUrl);
-
-        const sid = await sendWithRetry({
-          from: fromWhatsApp,
-          to: From,
-          mediaUrl: [url],
-          ...(statusCallback ? { statusCallback } : {}),
-        });
-
-        session.conversationHistory.push({
-          sender: "ai",
-          type: step.type,
-          content: url, // store final playable cloud URL
-          timestamp: new Date(),
-        });
-
-        await session.save();
-        await waitForDelivered(sid?.sid || sid);
-        await sleep(INTRO_MEDIA_DELAY + jitter());
-        continue;
-      }
-    }
-  }
-
-  session.hasReceivedWelcome = true;
-  await session.save();
-  return;
-}
-
-
-      
-      // ✅ 24-HOUR REOPEN
+      // ---------- 24H reopen ----------
       if (session.conversationHistory.length > 0) {
         const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
         const hours = (Date.now() - new Date(lastMsg.timestamp)) / 36e5;
@@ -212,32 +218,61 @@ if (!session.hasReceivedWelcome) {
         }
       }
 
+      // ---------- QA MATCH: send TEXT then AUDIO (if available) ----------
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
-      if (match && match.answerAudio) {
-        let url = await ensurePublicMedia(match.answerAudio, "audio");
-        if (url.endsWith(".mp4")) {
-          const tmp = `./qa_${Date.now()}.mp4`;
-          const res = await fetch(url);
-          fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-          const converted = await encodeForWhatsApp(tmp, "audio");
-          const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
-          url = uploaded;
-          fs.unlinkSync(tmp);
-          fs.unlinkSync(converted);
-        }
-        await sendWithRetry({ from: fromWhatsApp, to: From, mediaUrl: [url], ...(statusCallback ? { statusCallback } : {}) });
-        session.conversationHistory.push({ sender: "ai", content: "[audio]", type: "audio", timestamp: new Date() });
-        await session.save();
-        return;
-      }
+      if (match) {
+        // 1) TEXT first (if available)
+        if (match.answerText && match.answerText.trim() !== "") {
+          const textSid = await sendWithRetry({
+            from: fromWhatsApp,
+            to: From,
+            body: match.answerText,
+            ...(statusCallback ? { statusCallback } : {}),
+          });
 
+          pushHistory(session, { sender: "ai", type: "text", content: match.answerText });
+          await session.save();
+
+          await waitForDelivered(textSid?.sid || textSid);
+          // no artificial delay needed beyond delivery wait
+        }
+
+        // 2) AUDIO (if available)
+        if (match.answerAudio) {
+          let url = await ensurePublicMedia(match.answerAudio, "audio");
+
+          // If source is mp4, convert to mp3 for WA audio
+          if (url.endsWith(".mp4")) {
+            const tmp = `./qa_${Date.now()}.mp4`;
+            const res = await fetch(url);
+            fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+            const converted = await encodeForWhatsApp(tmp, "audio");
+            const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
+            url = uploaded;
+            fs.unlinkSync(tmp);
+            fs.unlinkSync(converted);
+          }
+
+          const audSid = await sendWithRetry({
+            from: fromWhatsApp,
+            to: From,
+            mediaUrl: [url],
+            ...(statusCallback ? { statusCallback } : {}),
+          });
+
+          pushHistory(session, { sender: "ai", type: "audio", content: url });
+          await session.save();
+
+          await waitForDelivered(audSid?.sid || audSid);
+        }
+
+        return; // done after responding to QA
+      }
     } catch (err) {
       console.error("❌ Webhook error:", err);
     }
-
   })();
-
 });
 
 export default r;

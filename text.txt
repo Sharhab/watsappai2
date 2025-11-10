@@ -120,75 +120,83 @@ r.post("/webhook", withTenant, async (req, res) => {
       if (!session) session = await CustomerSession.create({ phoneNumber: From, hasReceivedWelcome: false, conversationHistory: [] });
 
       if (normalizeText(incomingMsg)) {
-        session.conversationHistory.push({ sender: "customer", content: incomingMsg, type: numMedia ? "voice" : "text", timestamp: new Date() });
+     session.conversationHistory.push({
+  sender: "customer",
+  content: incomingMsg,
+  type: numMedia ? "audio" : "text", // ✅ FIXED
+  timestamp: new Date(),
+});
+
         await session.save();
       }
+       // ✅ INTRO — Send Pre-Encoded Media (No Re-Encode, No Re-Upload)
+if (!session.hasReceivedWelcome) {
 
-      // ✅ ✅ ✅ INTRO with FORCE ENCODE FIX
-      if (!session.hasReceivedWelcome) {
+  // Optional template greeting
+  if (templateSid) {
+    const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
+    await waitForDelivered(sid?.sid);
+    await sleep(INTRO_TEMPLATE_DELAY + jitter());
+  }
 
-        if (templateSid) {
-          const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-          await waitForDelivered(sid?.sid);
-          await sleep(INTRO_TEMPLATE_DELAY + jitter());
-        }
+  const intro = await Intro.findOne();
+  if (intro?.sequence?.length) {
+    for (const step of intro.sequence) {
 
-        const intro = await Intro.findOne();
+      // ✅ TEXT STEP
+      if (step.type === "text") {
+        const sid = await sendWithRetry({
+          from: fromWhatsApp,
+          to: From,
+          body: step.content,
+          ...(statusCallback ? { statusCallback } : {}),
+        });
 
-        if (intro?.sequence?.length) {
-          for (const step of intro.sequence) {
+        session.conversationHistory.push({
+          sender: "ai",
+          type: "text",
+          content: step.content,
+          timestamp: new Date(),
+        });
 
-            // TEXT
-            if (step.type === "text") {
-              const sid = await sendWithRetry({ from: fromWhatsApp, to: From, body: step.content, ...(statusCallback ? { statusCallback } : {}) });
-              await waitForDelivered(sid?.sid || sid);
-              await sleep(INTRO_TEXT_DELAY + jitter());
-            }
-
-            // ✅ MEDIA — FORCE RE-ENCODE EVERY TIME
-            else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
-
-              let url = toAbsoluteUrl(step.fileUrl);
-
-              try {
-                const tmp = `./intro_${Date.now()}`;
-                const res = await fetch(url);
-                fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-
-                // 🔥 Always encode according to WhatsApp-safe spec
-                const converted = await encodeForWhatsApp(tmp, step.type);
-                const uploaded = await uploadToCloudinary(fs.readFileSync(converted), step.type, "intro_media");
-
-                url = uploaded;
-
-                fs.unlinkSync(tmp);
-                fs.unlinkSync(converted);
-              } catch (err) {
-                console.error("⚠️ Forced intro re-encode failed — sending original:", err);
-              }
-
-              const sid = await sendWithRetry({
-                from: fromWhatsApp,
-                to: From,
-                mediaUrl: [url],
-                ...(statusCallback ? { statusCallback } : {}),
-              });
-
-              await waitForDelivered(sid?.sid || sid);
-              await sleep(INTRO_MEDIA_DELAY + jitter());
-            }
-
-            session.conversationHistory.push({ sender: "ai", content: step.content || `[${step.type}]`, type: step.type, timestamp: new Date() });
-            await session.save();
-          }
-        }
-
-        session.hasReceivedWelcome = true;
         await session.save();
-        return;
+        await waitForDelivered(sid?.sid || sid);
+        await sleep(INTRO_TEXT_DELAY + jitter());
+        continue;
       }
 
-      
+      // ✅ MEDIA STEP (video / audio) — Already WhatsApp Safe
+      if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
+
+        const url = toAbsoluteUrl(step.fileUrl);
+
+        const sid = await sendWithRetry({
+          from: fromWhatsApp,
+          to: From,
+          mediaUrl: [url],
+          ...(statusCallback ? { statusCallback } : {}),
+        });
+
+        session.conversationHistory.push({
+          sender: "ai",
+          type: step.type,
+          content: [url], // store final playable cloud URL
+          timestamp: new Date(),
+        });
+
+        await session.save();
+        await waitForDelivered(sid?.sid || sid);
+        await sleep(INTRO_MEDIA_DELAY + jitter());
+        continue;
+      }
+    }
+  }
+
+  session.hasReceivedWelcome = true;
+  await session.save();
+  return;
+}
+    
       // ✅ 24-HOUR REOPEN
       if (session.conversationHistory.length > 0) {
         const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
@@ -228,63 +236,3 @@ r.post("/webhook", withTenant, async (req, res) => {
 });
 
 export default r;
-
-
-
-
-
-
-
-
-
-import { v2 as cloudinary } from "cloudinary";
-import streamifier from "streamifier";
-
-// ✅ configure from env
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-/**
- * Upload a buffer to Cloudinary
- * @param {Buffer} fileBuffer - the file buffer
- * @param {"image" | "video" | "audio" | "auto"} type - file type
- * @param {string} folder - Cloudinary folder name
- * @returns {Promise<string>} secure_url of the uploaded file
- */
-async function uploadToCloudinary(fileBuffer, type = "auto", folder = "uploads") {
-  return new Promise((resolve, reject) => {
-    // Force resource_type for audio/video
-    let resourceType = "auto";
-    if (type === "video" || type === "audio") {
-      resourceType = "video"; // ✅ Cloudinary treats both mp3 + mp4 as video
-    } else if (type === "image") {
-      resourceType = "image";
-    }
-
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        resource_type: resourceType,
-        folder, // dynamic folder (intro_steps, receipts, etc.)
-        transformation:
-          resourceType === "image"
-            ? [{ width: 1200, crop: "limit", quality: "auto" }] // ✅ resize/compress images for OCR
-            : undefined,
-      },
-      (error, result) => {
-        if (error) {
-          console.error("❌ Cloudinary upload failed:", error);
-          return reject(error);
-        }
-        console.log("☁️ Cloudinary upload success:", result.secure_url);
-        resolve(result.secure_url);
-      }
-    );
-
-    streamifier.createReadStream(fileBuffer).pipe(uploadStream);
-  });
-}
-
-export default uploadToCloudinary;
