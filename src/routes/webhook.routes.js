@@ -227,54 +227,70 @@ r.post("/webhook", withTenant, async (req, res) => {
       // ---------- QA MATCH: send TEXT then AUDIO (if available) ----------
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
-      if (match) {
-        // 1) TEXT first (if available)
-        if (match.answerText && match.answerText.trim() !== "") {
-          const textSid = await sendWithRetry({
-            from: fromWhatsApp,
-            to: From,
-            body: match.answerText,
-            ...(statusCallback ? { statusCallback } : {}),
-          });
+     if (match) {
 
-          pushHistory(session, { sender: "ai", type: "text", content: match.answerText });
-          await session.save();
+  // ✅ 1) TEXT first (if available)
+  if (match.answerText && match.answerText.trim() !== "") {
 
-          await waitForDelivered(textSid?.sid || textSid);
-          // no artificial delay needed beyond delivery wait
-        }
+    const textSid = await sendWithRetry({
+      from: fromWhatsApp,
+      to: From,
+      body: match.answerText,
+      ...(statusCallback ? { statusCallback } : {}),
+    });
 
-        // 2) AUDIO (if available)
-        if (match.answerAudio) {
-          let url = await ensurePublicMedia(match.answerAudio, "audio");
+    // ✅ Store TEXT properly
+    session.conversationHistory.push({
+      sender: "ai",
+      type: "text",
+      content: match.answerText,
+      timestamp: new Date(),
+    });
+    await session.save();
 
-          // If source is mp4, convert to mp3 for WA audio
-          if (url.endsWith(".mp4")) {
-            const tmp = `./qa_${Date.now()}.mp4`;
-            const res = await fetch(url);
-            fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-            const converted = await encodeForWhatsApp(tmp, "audio");
-            const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
-            url = uploaded;
-            fs.unlinkSync(tmp);
-            fs.unlinkSync(converted);
-          }
+    await waitForDelivered(textSid?.sid || textSid);
+  }
 
-          const audSid = await sendWithRetry({
-            from: fromWhatsApp,
-            to: From,
-            mediaUrl: [url],
-            ...(statusCallback ? { statusCallback } : {}),
-          });
+  // ✅ 2) AUDIO (if available)
+  if (match.answerAudio) {
+    let url = await ensurePublicMedia(match.answerAudio, "audio");
 
-          pushHistory(session, { sender: "ai", type: "audio", content: url });
-          await session.save();
+    // Convert mp4 → mp3 when needed
+    if (url.endsWith(".mp4")) {
+      const tmp = `./qa_${Date.now()}.mp4`;
+      const res = await fetch(url);
+      fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
 
-          await waitForDelivered(audSid?.sid || audSid);
-        }
+      const converted = await encodeForWhatsApp(tmp, "audio");
+      const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
 
-        return; // done after responding to QA
-      }
+      url = uploaded;
+      fs.unlinkSync(tmp);
+      fs.unlinkSync(converted);
+    }
+
+    const audSid = await sendWithRetry({
+      from: fromWhatsApp,
+      to: From,
+      mediaUrl: [url],
+      ...(statusCallback ? { statusCallback } : {}),
+    });
+
+    // ✅ Store AUDIO correctly (REAL playable link)
+    session.conversationHistory.push({
+      sender: "ai",
+      type: "audio",
+      content: url,
+      timestamp: new Date(),
+    });
+    await session.save();
+
+    await waitForDelivered(audSid?.sid || audSid);
+  }
+
+  return; // ✅ End QA flow
+}
+
     } catch (err) {
       console.error("❌ Webhook error:", err);
     }
