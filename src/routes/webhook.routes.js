@@ -191,9 +191,15 @@ r.post("/webhook", withTenant, async (req, res) => {
                 mediaUrl: [url],
                 ...(statusCallback ? { statusCallback } : {}),
               });
+             
 
               // store URL as string (not array)
-              pushHistory(session, { sender: "ai", type: step.type, content: url });
+              pushHistory(session, {
+               sender: "ai",
+               type: step.type,
+               content: step.type === "text" ? step.content : toAbsoluteUrl(step.fileUrl)
+             });
+
               await session.save();
 
               await waitForDelivered(sid?.sid || sid);
