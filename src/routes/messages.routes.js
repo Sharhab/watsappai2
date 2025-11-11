@@ -60,21 +60,33 @@ router.post("/send-voice", withTenant, upload.single("audio"), async (req, res) 
 
     if (!phone || !blob) return res.status(400).json({ error: "Missing phone or audio" });
 
-    // Convert blob → buffer
-    const buffer = blob.buffer;
+    const rawBuffer = blob.buffer;
 
-    // Encode to WhatsApp-safe .mp3
-    const tmpInput = `./tmp_${Date.now()}`;
-    const tmpOutput = await encodeForWhatsApp(tmpInput, "audio");
+    // -----------------------------
+    // ✅ Write raw input to temp file
+    // -----------------------------
+    const tmpIn = `./voice_in_${Date.now()}.webm`; // dashboard audio is usually webm
+    fs.writeFileSync(tmpIn, rawBuffer);
 
-    fs.writeFileSync(tmpInput, buffer);
-    fs.writeFileSync(tmpOutput, buffer);
+    // -----------------------------
+    // ✅ Encode to WhatsApp-safe mp3
+    // -----------------------------
+    const tmpOut = await encodeForWhatsApp(tmpIn, "audio");
+    const encodedBuffer = fs.readFileSync(tmpOut);
 
-    // Upload to Cloudinary
-    const cloudUrl = await uploadToCloudinary(buffer, "audio", "agent_voice");
+    // -----------------------------
+    // ✅ Upload Encoded File to Cloudinary
+    // -----------------------------
+    const cloudUrl = await uploadToCloudinary(encodedBuffer, "audio", "agent_voice");
+    console.log("🎤 Uploaded Voice:", cloudUrl);
 
-    // Send to customer
-    const fromWhatsApp = `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
+    // -----------------------------
+    // ✅ Send to customer
+    // -----------------------------
+    const fromWhatsApp = process.env.TWILIO_WHATSAPP_NUMBER.startsWith("whatsapp:")
+      ? process.env.TWILIO_WHATSAPP_NUMBER
+      : `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
+
     const toWhatsApp = phone.startsWith("whatsapp:") ? phone : `whatsapp:${phone}`;
 
     await sendWithRetry({
@@ -83,7 +95,9 @@ router.post("/send-voice", withTenant, upload.single("audio"), async (req, res) 
       mediaUrl: [cloudUrl],
     });
 
-    // Save in DB
+    // -----------------------------
+    // ✅ Save in DB Conversation History
+    // -----------------------------
     let session = await CustomerSession.findOne({ phoneNumber: toWhatsApp });
     if (!session) session = await CustomerSession.create({ phoneNumber: toWhatsApp });
 
@@ -93,14 +107,19 @@ router.post("/send-voice", withTenant, upload.single("audio"), async (req, res) 
       content: cloudUrl,
       timestamp: new Date(),
     });
-
     await session.save();
+
+    // -----------------------------
+    // ✅ Cleanup tmp files
+    // -----------------------------
+    fs.unlinkSync(tmpIn);
+    fs.unlinkSync(tmpOut);
 
     res.json({ success: true, url: cloudUrl });
 
   } catch (err) {
     console.error("❌ Voice send error:", err);
-    res.status(500).json({ error: "Failed to send voice" });
+    res.status(500).json({ error: err.message || "Failed to send voice" });
   }
 });
 
