@@ -17,6 +17,10 @@ import ordersRoutes from "./routes/orders.routes.js";
 import webhookRoutes from "./routes/webhook.routes.js";
 import paymentsRoutes from "./routes/payments.routes.js";
 import { authOptional } from "./middleware/auth.js";
+import messagesRoutes from "./routes/messages.routes.js";
+
+
+
 
 async function startServer() {
   const app = express();
@@ -67,6 +71,7 @@ async function startServer() {
   app.use("/", webhookRoutes); // /webhook
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/conversations", conversationsRoutes);
+app.use("/api/messages", messagesRoutes);
 
 
   const port = process.env.PORT || 3000;
