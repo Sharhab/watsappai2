@@ -252,43 +252,45 @@ r.post("/webhook", withTenant, async (req, res) => {
   }
 
   // ✅ 2) AUDIO (if available)
-  if (match.answerAudio) {
-    let url = await ensurePublicMedia(match.answerAudio, "audio");
+if (match.answerAudio) {
+  let url = await ensurePublicMedia(match.answerAudio, "audio");
 
-    // Convert mp4 → mp3 when needed
-    if (url.endsWith(".mp4")) {
-      const tmp = `./qa_${Date.now()}.mp4`;
-      const res = await fetch(url);
-      fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+  // Convert mp4 → mp3 when needed
+  if (url.endsWith(".mp4")) {
+    const tmp = `./qa_${Date.now()}.mp4`;
+    const res = await fetch(url);
+    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
 
-      const converted = await encodeForWhatsApp(tmp, "audio");
-      const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
+    const converted = await encodeForWhatsApp(tmp, "audio");
+    const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
 
-      url = uploaded;
-      fs.unlinkSync(tmp);
-      fs.unlinkSync(converted);
-    }
-
-    const audSid = await sendWithRetry({
-      from: fromWhatsApp,
-      to: From,
-      mediaUrl: [url],
-      ...(statusCallback ? { statusCallback } : {}),
-    });
-
-    // ✅ Store AUDIO correctly (REAL playable link)
-    session.conversationHistory.push({
-      sender: "ai",
-      type: "audio",
-      content: url,
-      timestamp: new Date(),
-    });
-    await session.save();
-
-    await waitForDelivered(audSid?.sid || audSid);
+    url = uploaded;
+    fs.unlinkSync(tmp);
+    fs.unlinkSync(converted);
   }
 
-  return; // ✅ End QA flow
+  const audSid = await sendWithRetry({
+    from: fromWhatsApp,
+    to: From,
+    mediaUrl: [url],
+    ...(statusCallback ? { statusCallback } : {}),
+  });
+
+  // ✅ Store audio as structured message
+  session.conversationHistory.push({
+    sender: "ai",
+    type: "audio",
+    mediaUrl: url,        // ✅ REAL playable audio URL
+    transcription: null,  // (optional, for consistency with customer audio)
+    content: "[audio]",   // fallback for list preview
+    timestamp: new Date(),
+  });
+
+  await session.save();
+  await waitForDelivered(audSid?.sid || audSid);
+  return;
+}
+
 }
 
     } catch (err) {
