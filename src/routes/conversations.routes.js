@@ -1,16 +1,37 @@
-// /src/routes/conversations.routes.js
 import express from "express";
 import { withTenant } from "../middleware/withTenant.js";
 
 const router = express.Router();
 
-// ✅ GET all conversations (list preview)
+/**
+ * ✅ Normalize preview text for sidebar
+ */
+function previewText(msg) {
+  if (!msg) return "[no messages]";
+
+  // If content is stored as array → take first element
+  let c = Array.isArray(msg.content) ? msg.content[0] : msg.content;
+
+  // If empty or missing → show type icon
+  if (!c || c === "") {
+    if (msg.type === "audio") return "🎤 Voice Message";
+    if (msg.type === "video") return "🎞 Video";
+    if (msg.type === "image") return "🖼 Image";
+    return "[empty]";
+  }
+
+  // Text content preview
+  return c.length > 35 ? c.slice(0, 35) + "…" : c;
+}
+
+
+// ✅ GET all conversations (sidebar previews)
 router.get("/", withTenant, async (req, res) => {
   try {
     const { CustomerSession } = req.models;
 
     const sessions = await CustomerSession.find({})
-      .sort({ updatedAt: -1 }) // latest first
+      .sort({ updatedAt: -1 })
       .lean();
 
     const conversations = sessions.map((s) => {
@@ -18,7 +39,7 @@ router.get("/", withTenant, async (req, res) => {
 
       return {
         phone: s.phoneNumber.replace("whatsapp:", ""),
-        lastMessage: last?.content || "",
+        lastMessage: previewText(last),
         lastType: last?.type || "text",
         lastTimestamp: last?.timestamp || s.updatedAt,
       };
@@ -32,11 +53,12 @@ router.get("/", withTenant, async (req, res) => {
   }
 });
 
-// ✅ GET full conversation by phone
-// ✅ GET full conversation by phone
+
+// ✅ GET full conversation by phone — return clean structure for frontend
 router.get("/:phone", withTenant, async (req, res) => {
   try {
     const { CustomerSession } = req.models;
+
     const phone = req.params.phone.startsWith("whatsapp:")
       ? req.params.phone
       : `whatsapp:${req.params.phone}`;
@@ -46,13 +68,16 @@ router.get("/:phone", withTenant, async (req, res) => {
       return res.status(404).json({ error: "Conversation not found" });
     }
 
-    // ✅ Convert DB entry format → Frontend-friendly format
-    const conversationHistory = (session.conversationHistory || []).map((entry) => ({
-      sender: entry.userMessage ? "user" : "ai",
-      type: entry.messageType || "text",
-      content: entry.userMessage || entry.botReply || "",
-      timestamp: entry.timestamp,
-    }));
+    const conversationHistory = (session.conversationHistory || []).map((msg) => {
+      return {
+        sender: msg.sender,                // "ai" or "customer"
+        type: msg.type || "text",          // "text", "audio", "video", "image"
+        content: Array.isArray(msg.content)
+          ? msg.content[0]                // fix stored array URLs
+          : msg.content || "",
+        timestamp: msg.timestamp || session.updatedAt,
+      };
+    });
 
     res.json({
       phone: session.phoneNumber.replace("whatsapp:", ""),
