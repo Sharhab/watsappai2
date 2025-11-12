@@ -226,7 +226,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ---------- QA MATCH: send TEXT then AUDIO (if available) ----------
-      const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
+      const match = normalizeHausa(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
      if (match) {
 
