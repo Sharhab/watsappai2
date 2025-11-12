@@ -81,12 +81,13 @@ export async function transcribeAudio(mediaUrl, AccountSid, AuthToken) {
 
     const request = {
       audio: { content: audioBytes },
-      config: {
-        encoding: "LINEAR16",
-        sampleRateHertz: 16000,
-        languageCode: "ha-NG",
-        enableAutomaticPunctuation: true,
+      config: { 
+    encoding: "LINEAR16",
+    sampleRateHertz: 16000,
+    languageCode: "ha-NG",
+    enableAutomaticPunctuation: false,
       },
+       audio: { content: audioBytes },
     };
 
     console.log("🗣  Calling Google STT...");
