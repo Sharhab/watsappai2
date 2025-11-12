@@ -1,4 +1,3 @@
-// /src/routes/webhook.routes.js
 import { Router } from "express";
 import Tesseract from "tesseract.js";
 import fetch from "node-fetch";
@@ -7,7 +6,7 @@ import twilio from "twilio";
 import { withTenant } from "../middleware/withTenant.js";
 import uploadToCloudinary from "../utils/cloudinaryUpload.js";
 import { transcribeAudio } from "../utils/stt.js";
-import { findBestMatch } from "../utils/matching.js";
+import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
@@ -143,14 +142,14 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // store incoming message (text or audio transcript)
-      
+      if (normalizeText(incomingMsg)) {
         pushHistory(session, {
           sender: "customer",
           type: numMedia ? "audio" : "text", // "audio" rather than "voice"
           content: incomingMsg,
         });
         await session.save();
-      
+      }
 
       // ---------- INTRO (send already-encoded media; store history correctly) ----------
       if (!session.hasReceivedWelcome) {
@@ -225,7 +224,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ---------- QA MATCH: send TEXT then AUDIO (if available) ----------
-      const match =  await findBestMatch(QA, incomingMsg);
+      const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
 
      if (match) {
 
