@@ -1,78 +1,113 @@
-import { embedText } from "./embed.js";
+// src/utils/matching.js
 
 /**
- * Strong Hausa text normalization
+ * Gentle normalization — keeps core Hausa words intact.
  */
 export function normalizeText(text) {
   if (!text) return "";
-
   return text
     .toLowerCase()
-    // Remove Hausa & Arabic greetings and fillers
-    .replace(
-      /\b(ass?alamu|alaikum|warah?mat(ullahi)?|barka|dai|sannu|yaya|ina\s+kwana|lafiya|hello|hi|salamu|salam|ne|fa|to|eh|kai|wai)\b/g,
-      ""
-    )
-    // Remove accents / diacritics
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    // Remove punctuation and multiple spaces
-    .replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "")
+    .replace(/[\u0300-\u036f]/g, "") // remove diacritics
+    .replace(/[^\p{L}\p{N}\s]/gu, " ") // remove punctuation
     .replace(/\s+/g, " ")
     .trim();
 }
 
 /**
- * Cosine similarity
+ * Basic string similarity using normalized Levenshtein ratio.
+ * This works well for Hausa short text and voice STT outputs.
  */
-function cosineSim(A, B) {
-  if (!A || !B || A.length !== B.length) return 0;
-  let dot = 0,
-    a = 0,
-    b = 0;
-  for (let i = 0; i < A.length; i++) {
-    dot += A[i] * B[i];
-    a += A[i] * A[i];
-    b += B[i] * B[i];
+function stringSimilarity(a, b) {
+  if (!a || !b) return 0;
+  a = normalizeText(a);
+  b = normalizeText(b);
+  const m = a.length;
+  const n = b.length;
+  if (!m || !n) return 0;
+
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1, // deletion
+        dp[i][j - 1] + 1, // insertion
+        dp[i - 1][j - 1] + cost // substitution
+      );
+    }
   }
-  return dot / (Math.sqrt(a) * Math.sqrt(b));
+
+  const distance = dp[m][n];
+  const maxLen = Math.max(m, n);
+  return 1 - distance / maxLen; // normalize 0–1
 }
 
 /**
- * Smart semantic search + debug log
+ * Main QA matching logic (no embeddings)
  */
 export async function findBestMatch(QACollection, userText) {
-  const query = normalizeText(userText);
+  const query = normalizeText(userText || "");
   if (!query) return null;
 
-  const queryEmbedding = await embedText(query);
-  const qas = await QACollection.find({ embedding: { $exists: true, $ne: [] } });
+  console.log("🔎 Searching QA match for:", query);
 
-  const scored = [];
-
-  for (const qa of qas) {
-    const score = cosineSim(queryEmbedding, qa.embedding);
-    scored.push({ qa, score });
+  const qas = await QACollection.find({}).lean();
+  if (!qas || qas.length === 0) {
+    console.warn("⚠️ No QA data found in DB");
+    return null;
   }
 
-  // Sort by descending similarity
+  const scored = qas.map((qa) => ({
+    qa,
+    score: stringSimilarity(query, qa.question || ""),
+  }));
+
   scored.sort((a, b) => b.score - a.score);
 
-  const top3 = scored.slice(0, 3);
-  const best = top3[0] || null;
-  const bestScore = best?.score || 0;
+  const best = scored[0];
+  const bestScore = best?.score ?? 0;
+  const MIN_SCORE = Number(process.env.QA_MIN_SIMILARITY || 0.45); // can tune this
 
-  // 🔥 Only accept strong matches
-  const MIN_SCORE = 0.48;
-
-  // 🧠 Debug info
-  console.log("🔎 Similarity ranking:");
-  top3.forEach((item, i) => {
+  console.log("🔎 Top 3 candidates:");
+  scored.slice(0, 3).forEach((s, i) => {
     console.log(
-      `   ${i + 1}. ${item.qa.question.slice(0, 80)}... [score=${item.score.toFixed(3)}]`
+      `   ${i + 1}. [${s.score.toFixed(3)}] ${String(s.qa.question).slice(0, 100)}`
     );
   });
-  console.log(`🎯 Best score: ${bestScore.toFixed(3)} (${bestScore >= MIN_SCORE ? "MATCH ✅" : "NO MATCH ❌"})`);
 
-  return bestScore >= MIN_SCORE ? best.qa : null;
+  console.log(`🎯 Best score: ${bestScore.toFixed(3)} (threshold=${MIN_SCORE})`);
+
+  if (bestScore >= MIN_SCORE) {
+    console.log("✅ Matched QA:", best.qa.question);
+    return best.qa;
+  }
+
+  console.log("❌ No strong match found — using text fallback...");
+  return textFallback(QACollection, query);
+}
+
+/**
+ * Text fallback: simple substring & keyword check.
+ */
+async function textFallback(QACollection, normalizedQuery) {
+  const qas = await QACollection.find({}).lean();
+
+  for (const qa of qas) {
+    const normQ = normalizeText(qa.question || "");
+    if (
+      normQ.includes(normalizedQuery) ||
+      normalizedQuery.includes(normQ) ||
+      normalizedQuery.startsWith(normQ.split(" ")[0])
+    ) {
+      console.log("✅ textFallback matched:", qa.question);
+      return qa;
+    }
+  }
+
+  console.log("🚫 No text fallback match found.");
+  return null;
 }
