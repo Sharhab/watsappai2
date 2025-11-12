@@ -70,7 +70,7 @@ export async function findBestMatch(QACollection, userText) {
 
   const best = scored[0];
   const bestScore = best?.score ?? 0;
-  const MIN_SCORE = Number(process.env.QA_MIN_SIMILARITY || 0.45); // can tune this
+  const MIN_SCORE = Number(process.env.QA_MIN_SIMILARITY || 0.30); // can tune this
 
   console.log("🔎 Top 3 candidates:");
   scored.slice(0, 3).forEach((s, i) => {
