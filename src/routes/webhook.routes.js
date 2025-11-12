@@ -7,7 +7,8 @@ import twilio from "twilio";
 import { withTenant } from "../middleware/withTenant.js";
 import uploadToCloudinary from "../utils/cloudinaryUpload.js";
 import { transcribeAudio } from "../utils/stt.js";
-import { findBestMatch, normalizeText } from "../utils/matching.js";
+import { findBestMatch } from "../utils/matching.js";
+import { normalizeHausa } from "../utils/normalizeHausa.js"
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
@@ -143,7 +144,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // store incoming message (text or audio transcript)
-      if (normalizeText(incomingMsg)) {
+      if (normalizeHausa(incomingMsg)) {
         pushHistory(session, {
           sender: "customer",
           type: numMedia ? "audio" : "text", // "audio" rather than "voice"

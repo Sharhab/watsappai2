@@ -1,4 +1,8 @@
-// src/server.js
+// src/server.j
+// FORCE TRANSFORMERS TO USE WASM (no onnxruntime-node needed)
+process.env.TRANSFORMERS_BACKEND = "wasm";
+globalThis.TRANSFORMERS_BACKEND = "wasm";
+
 import dotenv from "dotenv";
 dotenv.config();
 

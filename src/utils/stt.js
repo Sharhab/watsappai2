@@ -85,7 +85,6 @@ export async function transcribeAudio(mediaUrl, AccountSid, AuthToken) {
         encoding: "LINEAR16",
         sampleRateHertz: 16000,
         languageCode: "ha-NG",
-        alternativeLanguageCodes: ["en-US"],
         enableAutomaticPunctuation: true,
       },
     };
