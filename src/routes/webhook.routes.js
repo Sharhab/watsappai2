@@ -95,14 +95,15 @@ r.post("/webhook", withTenant, async (req, res) => {
   } catch {}
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const jitter = () => 200 + Math.floor(Math.random() * 400);
   const INTRO_TEMPLATE_DELAY = parseInt(process.env.INTRO_TEMPLATE_DELAY || "1200", 10);
   const INTRO_TEXT_DELAY = parseInt(process.env.INTRO_TEXT_DELAY || "1500", 10);
   const INTRO_MEDIA_DELAY = parseInt(process.env.INTRO_MEDIA_DELAY || "4500", 10);
+  const jitter = () => 200 + Math.floor(Math.random() * 400);
 
   (async () => {
     try {
       console.log("🚀 Incoming Webhook:", JSON.stringify(req.body, null, 2));
+
       const { QA, Intro, CustomerSession, Order } = req.models;
       const { From } = req.body || {};
       console.log("📱 From:", From);
@@ -142,45 +143,42 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ---------- STT ----------
-      let transcript = "";
-      if (numMedia && mediaType.includes("audio")) {
-        console.log("🎤 Audio detected — transcribing...");
-        transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
-        console.log("🗣 STT Transcript:", transcript);
-        if (transcript && transcript.trim() !== "") incomingMsg = transcript;
-      }
+     // ---------- Handle audio vs text ----------
+if (numMedia && mediaType.includes("audio")) {
+  console.log("🎤 Audio detected — transcribing...");
+  const transcript = await withRetry(() =>
+    transcribeAudio(mediaUrl, AccountSid, AuthToken)
+  );
+  console.log("🗣 STT Transcript:", transcript);
 
-      // ---------- Session ----------
-      console.log("🧠 Fetching/Creating session for:", From);
-      let session = await CustomerSession.findOne({ phoneNumber: From });
-      if (!session) {
-        console.log("🆕 Creating new session...");
-        session = await CustomerSession.create({
-          phoneNumber: From,
-          hasReceivedWelcome: false,
-          conversationHistory: [],
-        });
-      }
+  // Always replace the incoming message with text
+  incomingMsg = transcript && transcript.trim()
+    ? transcript
+    : "[voice message could not be transcribed]";
+}
 
-      // ---------- Store customer message ----------
-      if (normalizeText(incomingMsg) || numMedia) {
-        const entry = {
-          sender: "customer",
-          type: numMedia ? (mediaType.includes("audio") ? "audio" : "media") : "text",
-          content: transcript && transcript.trim() !== "" ? transcript : incomingMsg,
-          timestamp: new Date(),
-        };
+// ---------- Session ----------
+console.log("🧠 Fetching/Creating session for:", From);
 
-        // If audio — include both original audio URL and transcript text for dashboard
-        if (numMedia && mediaType.includes("audio")) {
-          entry.audioUrl = mediaUrl;
-          entry.transcribedText = transcript || "";
-        }
+let session = await CustomerSession.findOne({ phoneNumber: From });
+if (!session) {
+  console.log("🆕 Creating new session...");
+  session = await CustomerSession.create({
+    phoneNumber: From,
+    hasReceivedWelcome: false,
+    conversationHistory: [],
+  });
+}
 
-        session.conversationHistory.push(entry);
-        await session.save();
-        console.log("💬 Saved customer message to session:", entry);
-      }
+// ---------- Store customer message ----------
+if (normalizeText(incomingMsg)) {
+  pushHistory(session, {
+    sender: "customer",
+    type: "text", // 🟢 Always text now (even for voice)
+    content: incomingMsg,
+  });
+  await session.save();
+}
 
       // ---------- INTRO ----------
       if (!session.hasReceivedWelcome) {
@@ -238,7 +236,7 @@ r.post("/webhook", withTenant, async (req, res) => {
 
       // ---------- 24H reopen ----------
       if (session.conversationHistory.length > 0) {
-        const lastMsg = session.conversationHistory.at(-1);
+        const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
         const hours = (Date.now() - new Date(lastMsg.timestamp)) / 36e5;
         console.log(`⏱ Last message was ${hours.toFixed(2)} hours ago`);
         if (hours > 24 && REENGAGE_TEMPLATE) {
@@ -254,7 +252,7 @@ r.post("/webhook", withTenant, async (req, res) => {
       console.log("🎯 Match result:", match);
 
       if (match) {
-        if (match.answerText?.trim()) {
+        if (match.answerText && match.answerText.trim() !== "") {
           console.log("💬 Sending text answer...");
           const textSid = await sendWithRetry({
             from: fromWhatsApp,
