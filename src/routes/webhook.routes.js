@@ -15,7 +15,6 @@ const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
 const REENGAGE_TEMPLATE = process.env.WHATSAPP_REENGAGE_TEMPLATE_SID;
 
-// Twilio client for delivery checks
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 async function waitForDelivered(messageSid) {
@@ -95,15 +94,11 @@ r.post("/webhook", withTenant, async (req, res) => {
   } catch {}
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const INTRO_TEMPLATE_DELAY = parseInt(process.env.INTRO_TEMPLATE_DELAY || "1200", 10);
-  const INTRO_TEXT_DELAY = parseInt(process.env.INTRO_TEXT_DELAY || "1500", 10);
-  const INTRO_MEDIA_DELAY = parseInt(process.env.INTRO_MEDIA_DELAY || "4500", 10);
   const jitter = () => 200 + Math.floor(Math.random() * 400);
 
   (async () => {
     try {
       console.log("🚀 Incoming Webhook:", JSON.stringify(req.body, null, 2));
-
       const { QA, Intro, CustomerSession, Order } = req.models;
       const { From } = req.body || {};
       console.log("📱 From:", From);
@@ -120,110 +115,127 @@ r.post("/webhook", withTenant, async (req, res) => {
       const numMedia = parseInt(req.body?.NumMedia || "0", 10);
       const mediaType = req.body?.MediaContentType0 || "";
       const mediaUrl = req.body?.MediaUrl0;
-      let incomingMsg = req.body?.Body || "";
+      let incomingMsg = req.body?.Body?.trim() || "";
 
       console.log("📦 numMedia:", numMedia, "mediaType:", mediaType, "mediaUrl:", mediaUrl);
       console.log("💬 incomingMsg (raw):", incomingMsg);
 
-      // ---------- OCR ----------
+      // ---------- Handle Image (receipt etc.) ----------
       if (numMedia && mediaType.startsWith("image/")) {
         console.log("🖼 Detected image, performing OCR...");
         const resp = await fetch(mediaUrl, {
-          headers: { Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64") },
+          headers: {
+            Authorization:
+              "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64"),
+          },
         });
         const buffer = Buffer.from(await resp.arrayBuffer());
         const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
+
+        // OCR extract
         const { data: { text } } = await Tesseract.recognize(uploaded, "eng");
         console.log("📄 OCR text:", text);
+
+        // save receipt for record
         await Order.create({
           phone: From.replace("whatsapp:", ""),
           receiptUrl: uploaded,
           receiptExtract: { rawText: text },
         });
+
+        // store in conversation for dashboard view
+        const session = await CustomerSession.findOneAndUpdate(
+          { phoneNumber: From },
+          {
+            $push: {
+              conversationHistory: {
+                sender: "customer",
+                type: "image",
+                content: uploaded,
+                timestamp: new Date(),
+              },
+            },
+          },
+          { upsert: true, new: true }
+        );
+
+        await session.save();
+        console.log("✅ Image stored in dashboard");
+        return;
       }
 
-      // ---------- STT ----------
-     // ---------- Handle audio vs text ----------
-if (numMedia && mediaType.includes("audio")) {
-  console.log("🎤 Audio detected — transcribing...");
-  const transcript = await withRetry(() =>
-    transcribeAudio(mediaUrl, AccountSid, AuthToken)
-  );
-  console.log("🗣 STT Transcript:", transcript);
+      // ---------- Handle Audio ----------
+      if (!incomingMsg && numMedia && mediaType.includes("audio")) {
+        console.log("🎤 Audio detected — transcribing...");
+        const transcript = await withRetry(() =>
+          transcribeAudio(mediaUrl, AccountSid, AuthToken)
+        );
+        console.log("🗣 STT Transcript:", transcript);
+        incomingMsg = transcript?.trim()
+          ? transcript
+          : "[voice message could not be transcribed]";
+      }
 
-  // Always replace the incoming message with text
-  incomingMsg = transcript && transcript.trim()
-    ? transcript
-    : "[voice message could not be transcribed]";
-}
+      // ---------- Create / Get Session ----------
+      let session = await CustomerSession.findOne({ phoneNumber: From });
+      if (!session) {
+        console.log("🆕 Creating new session...");
+        session = await CustomerSession.create({
+          phoneNumber: From,
+          hasReceivedWelcome: false,
+          conversationHistory: [],
+        });
+      }
 
-// ---------- Session ----------
-console.log("🧠 Fetching/Creating session for:", From);
-
-let session = await CustomerSession.findOne({ phoneNumber: From });
-if (!session) {
-  console.log("🆕 Creating new session...");
-  session = await CustomerSession.create({
-    phoneNumber: From,
-    hasReceivedWelcome: false,
-    conversationHistory: [],
-  });
-}
-
-// ---------- Store customer message ----------
-if (normalizeText(incomingMsg)) {
-  pushHistory(session, {
-    sender: "customer",
-    type: "text", // 🟢 Always text now (even for voice)
-    content: incomingMsg,
-  });
-  await session.save();
-}
+      // ---------- Store Customer Message ----------
+      if (normalizeText(incomingMsg)) {
+        pushHistory(session, {
+          sender: "customer",
+          type: "text", // always text (even if came from audio)
+          content: incomingMsg,
+        });
+        await session.save();
+      }
 
       // ---------- INTRO ----------
       if (!session.hasReceivedWelcome) {
         console.log("👋 Sending INTRO sequence...");
         if (templateSid) {
-          const sid = await sendTemplate(From, fromWhatsApp, templateSid, { 1: "Friend" }, statusCallback);
-          console.log("📨 Template SID:", sid?.sid);
+          const sid = await sendTemplate(
+            From,
+            fromWhatsApp,
+            templateSid,
+            { 1: "Friend" },
+            statusCallback
+          );
           await waitForDelivered(sid?.sid);
-          await sleep(INTRO_TEMPLATE_DELAY + jitter());
+          await sleep(800 + jitter());
         }
 
         const intro = await Intro.findOne();
-        console.log("📜 Intro sequence found:", intro?.sequence?.length || 0);
-
         if (intro?.sequence?.length) {
           for (const step of intro.sequence) {
-            console.log(`▶️ Sending intro step:`, step);
             if (step.type === "text") {
               const sid = await sendWithRetry({
                 from: fromWhatsApp,
                 to: From,
                 body: step.content || "",
-                ...(statusCallback ? { statusCallback } : {}),
               });
-              pushHistory(session, { sender: "ai", type: "text", content: step.content || "" });
+              pushHistory(session, { sender: "ai", type: "text", content: step.content });
               await session.save();
               await waitForDelivered(sid?.sid || sid);
-              await sleep(INTRO_TEXT_DELAY + jitter());
-              continue;
-            }
-
-            if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
+              await sleep(1200 + jitter());
+            } else if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
               const url = toAbsoluteUrl(step.fileUrl);
-              console.log(`🎬 Sending media: ${url}`);
               const sid = await sendWithRetry({
                 from: fromWhatsApp,
                 to: From,
                 mediaUrl: [url],
-                ...(statusCallback ? { statusCallback } : {}),
               });
               pushHistory(session, { sender: "ai", type: step.type, content: url });
               await session.save();
               await waitForDelivered(sid?.sid || sid);
-              await sleep(INTRO_MEDIA_DELAY + jitter());
-              continue;
+              await sleep(4500 + jitter());
             }
           }
         }
@@ -234,31 +246,17 @@ if (normalizeText(incomingMsg)) {
         return;
       }
 
-      // ---------- 24H reopen ----------
-      if (session.conversationHistory.length > 0) {
-        const lastMsg = session.conversationHistory[session.conversationHistory.length - 1];
-        const hours = (Date.now() - new Date(lastMsg.timestamp)) / 36e5;
-        console.log(`⏱ Last message was ${hours.toFixed(2)} hours ago`);
-        if (hours > 24 && REENGAGE_TEMPLATE) {
-          console.log("🔁 Re-engaging old user...");
-          await sendTemplate(From, fromWhatsApp, REENGAGE_TEMPLATE, { 1: "Muna nan 😊" }, statusCallback);
-          await sleep(1200);
-        }
-      }
-
       // ---------- QA MATCH ----------
-      console.log("🔎 Searching QA match for:", incomingMsg);
-      const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
-      console.log("🎯 Match result:", match);
+      const match = normalizeText(incomingMsg)
+        ? await findBestMatch(QA, incomingMsg)
+        : null;
 
       if (match) {
-        if (match.answerText && match.answerText.trim() !== "") {
-          console.log("💬 Sending text answer...");
+        if (match.answerText?.trim()) {
           const textSid = await sendWithRetry({
             from: fromWhatsApp,
             to: From,
             body: match.answerText,
-            ...(statusCallback ? { statusCallback } : {}),
           });
           pushHistory(session, { sender: "ai", type: "text", content: match.answerText });
           await session.save();
@@ -266,28 +264,26 @@ if (normalizeText(incomingMsg)) {
         }
 
         if (match.answerAudio) {
-          console.log("🎧 Sending audio answer...");
           let url = await ensurePublicMedia(match.answerAudio, "audio");
-
           if (url.endsWith(".mp4")) {
-            console.log("🔄 Converting MP4 to MP3 for WhatsApp...");
             const tmp = `./qa_${Date.now()}.mp4`;
             const res = await fetch(url);
             fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
             const converted = await encodeForWhatsApp(tmp, "audio");
-            const uploaded = await uploadToCloudinary(fs.readFileSync(converted), "audio", "qa_voice");
+            const uploaded = await uploadToCloudinary(
+              fs.readFileSync(converted),
+              "audio",
+              "qa_voice"
+            );
             url = uploaded;
             fs.unlinkSync(tmp);
             fs.unlinkSync(converted);
           }
-
           const audSid = await sendWithRetry({
             from: fromWhatsApp,
             to: From,
             mediaUrl: [url],
-            ...(statusCallback ? { statusCallback } : {}),
           });
-
           pushHistory(session, { sender: "ai", type: "audio", content: url });
           await session.save();
           await waitForDelivered(audSid?.sid || audSid);

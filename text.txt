@@ -143,34 +143,42 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ---------- STT ----------
-      if (numMedia && mediaType.includes("audio")) {
-        console.log("🎤 Audio detected — transcribing...");
-        const transcript = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
-        console.log("🗣 STT Transcript:", transcript);
-        if (transcript) incomingMsg = transcript;
-      }
+     // ---------- Handle audio vs text ----------
+if (numMedia && mediaType.includes("audio")) {
+  console.log("🎤 Audio detected — transcribing...");
+  const transcript = await withRetry(() =>
+    transcribeAudio(mediaUrl, AccountSid, AuthToken)
+  );
+  console.log("🗣 STT Transcript:", transcript);
 
-      // ---------- Session ----------
-      console.log("🧠 Fetching/Creating session for:", From);
-      let session = await CustomerSession.findOne({ phoneNumber: From });
-      if (!session) {
-        console.log("🆕 Creating new session...");
-        session = await CustomerSession.create({
-          phoneNumber: From,
-          hasReceivedWelcome: false,
-          conversationHistory: [],
-        });
-      }
+  // Always replace the incoming message with text
+  incomingMsg = transcript && transcript.trim()
+    ? transcript
+    : "[voice message could not be transcribed]";
+}
 
-      // store message
-      if (normalizeText(incomingMsg)) {
-        pushHistory(session, {
-          sender: "customer",
-          type: numMedia ? "audio" : "text",
-          content: incomingMsg,
-        });
-        await session.save();
-      }
+// ---------- Session ----------
+console.log("🧠 Fetching/Creating session for:", From);
+
+let session = await CustomerSession.findOne({ phoneNumber: From });
+if (!session) {
+  console.log("🆕 Creating new session...");
+  session = await CustomerSession.create({
+    phoneNumber: From,
+    hasReceivedWelcome: false,
+    conversationHistory: [],
+  });
+}
+
+// ---------- Store customer message ----------
+if (normalizeText(incomingMsg)) {
+  pushHistory(session, {
+    sender: "customer",
+    type: "text", // 🟢 Always text now (even for voice)
+    content: incomingMsg,
+  });
+  await session.save();
+}
 
       // ---------- INTRO ----------
       if (!session.hasReceivedWelcome) {
