@@ -10,7 +10,7 @@ const qaSchema = new mongoose.Schema(
     // ✅ INTRO SEQUENCE (unchanged)
     sequence: [
       {
-        type: { type: String, enum: ["text", "audio"], required: true },
+        type: { type: String, enum: ["text", "audio", "image"], required: true },
         content: { type: String, required: true },
       },
     ],
