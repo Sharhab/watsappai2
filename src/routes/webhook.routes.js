@@ -7,12 +7,10 @@ import twilio from "twilio";
 import { withTenant } from "../middleware/withTenant.js";
 import uploadToCloudinary from "../utils/cloudinaryUpload.js";
 import { transcribeAudio } from "../utils/stt.js";
-import { transcribeHausaAudio } from "../utils/stt.js";
 import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
-import { normalizeHausa, extractIntent } from "../utils/hausa.js";
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
