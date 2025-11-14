@@ -6,7 +6,6 @@ import fs from "fs";
 import twilio from "twilio";
 import { withTenant } from "../middleware/withTenant.js";
 import uploadToCloudinary from "../utils/cloudinaryUpload.js";
-import { transcribeAudio } from "../utils/stt.js";
 import { transcribeHausaAudio } from "../utils/stt.js";
 import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
