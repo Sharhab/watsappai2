@@ -6,6 +6,7 @@ import fs from "fs";
 import twilio from "twilio";
 import { withTenant } from "../middleware/withTenant.js";
 import uploadToCloudinary from "../utils/cloudinaryUpload.js";
+import { transcribeAudio } from "../utils/stt.js";
 import { transcribeHausaAudio } from "../utils/stt.js";
 import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
@@ -193,7 +194,7 @@ r.post("/webhook", withTenant, async (req, res) => {
         console.log("🎤 Audio detected — transcribing...");
         let transcriptResult = { text: "", confidence: 0, used: "none" };
         try {
-          transcriptResult = await withRetry(() => transcribeHausaAudio(mediaUrl, AccountSid, AuthToken));
+          transcriptResult = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
         } catch (e) {
           console.warn("Transcription failed:", e.message || e);
         }
