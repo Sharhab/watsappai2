@@ -35,10 +35,11 @@ export async function transcribeHausaAudio(url) {
 
     console.log("🎯 Sending to Deepgram...");
 
-    const { result } = await deepgram.listen.prerecorded.transcribeFile(
+    // 🔥 Correct Deepgram v3 API call
+    const { result } = await deepgram.listen.prerecorded.transcribe(
       fs.readFileSync(wavPath),
       {
-        model: "multilingual",
+        model: "nova-2",
         language: "hau",
         smart_format: true,
         punctuate: true,
@@ -52,7 +53,7 @@ export async function transcribeHausaAudio(url) {
 
     return transcript;
   } catch (err) {
-    console.error("❌ Deepgram error:", err);
+    console.error("❌ Deepgram error:", err.response?.data || err);
     return "";
   }
 }
