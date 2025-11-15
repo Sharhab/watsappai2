@@ -208,43 +208,69 @@ r.post("/webhook", withTenant, async (req, res) => {
         incomingMsg = incomingMsg || ocrText || "";
       }
 
-      // ---------- AUDIO (transcribe -> always store transcript text) ----------
-      if (numMedia && mediaType.includes("audio")) {
-        console.log("🎤 Audio detected — transcribing...");
-        let transcriptResult = { text: "", confidence: 0, used: "none" };
-        try {
-          transcriptResult = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
-        } catch (e) {
-          console.warn("Transcription failed:", e.message || e);
-        }
-        console.log("🗣 STT Transcript:", transcriptResult);
+      // ---------- AUDIO (transcribe -> DO NOT save transcript; save audio ONLY) ----------
+if (numMedia && mediaType.includes("audio")) {
+  console.log("🎤 Audio detected — processing...");
 
-        // If transcript empty, put placeholder
-        const transcriptText = transcriptResult?.text?.trim() || "[voice message couldn't be transcribed]";
+  // 1️⃣ TRANSCRIBE AUDIO (for internal logic only, NOT for saving)
+  let transcriptResult = { text: "", confidence: 0, used: "none" };
+  try {
+    transcriptResult = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
+  } catch (e) {
+    console.warn("Transcription failed:", e.message || e);
+  }
+  console.log("🗣 STT Transcript:", transcriptResult);
 
-        // make incomingMsg equal to transcript (overrides empty Body)
-        incomingMsg = incomingMsg && incomingMsg.trim() ? incomingMsg : transcriptText;
+  // fallback if needed for internal use only
+  incomingMsg = transcriptResult?.text?.trim() || "";
 
-        // ensure session exists before storing
-        let session = await CustomerSession.findOne({ phoneNumber: From });
-        if (!session) {
-          session = await CustomerSession.create({
-            phoneNumber: From,
-            hasReceivedWelcome: false,
-            conversationHistory: [],
-          });
-        }
+  // 2️⃣ ENSURE SESSION EXISTS
+  let session = await CustomerSession.findOne({ phoneNumber: From });
+  if (!session) {
+    session = await CustomerSession.create({
+      phoneNumber: From,
+      hasReceivedWelcome: false,
+      conversationHistory: [],
+    });
+  }
 
-        // store transcript (text) so dashboard always shows text
-        pushHistory(session, {
-          sender: "customer",
-          type: "text",
-          content: incomingMsg,
-          meta: { transcriptConfidence: transcriptResult?.confidence ?? 0, transcriptProvider: transcriptResult?.used || "none", originalMediaUrl: mediaUrl },
-        });
+  // 3️⃣ DOWNLOAD RAW AUDIO
+  let audioBuffer = null;
+  try {
+    const audioResponse = await axios.get(mediaUrl, { responseType: "arraybuffer" });
+    audioBuffer = Buffer.from(audioResponse.data);
+  } catch (err) {
+    console.error("❌ Failed to download WhatsApp audio:", err.message || err);
+  }
 
-        await session.save();
-      }
+  // 4️⃣ UPLOAD AUDIO TO CLOUDINARY (using your existing uploader)
+  let cloudinaryAudioUrl = null;
+  if (audioBuffer) {
+    try {
+      cloudinaryAudioUrl = await uploadToCloudinary(audioBuffer, {
+        folder: "whatsapp/audio",
+        resource_type: "video", // required for WhatsApp audio/mp4
+      });
+      console.log("☁️ Cloudinary upload success:", cloudinaryAudioUrl);
+    } catch (err) {
+      console.error("❌ Cloudinary upload failed:", err.message || err);
+    }
+  }
+
+  // 5️⃣ SAVE AUDIO ONLY — NO TRANSCRIPT SAVED IN HISTORY
+  pushHistory(session, {
+    sender: "customer",
+    type: "audio",
+    content: cloudinaryAudioUrl,   // store audio URL, not text
+    meta: {
+      transcriptConfidence: transcriptResult.confidence ?? 0,
+      transcriptProvider: transcriptResult.used || "none",
+      originalMediaUrl: mediaUrl,
+    },
+  });
+
+  await session.save();
+}
 
       // ---------- Session ensure (for plain text messages) ----------
       let session = await CustomerSession.findOne({ phoneNumber: From });
