@@ -14,7 +14,7 @@
     "@deepgram/sdk": "^4.11.2",
     "@google-cloud/speech": "^7.2.0",
     "@xenova/transformers": "^2.6.1",
-    "axios": "^1.12.2",
+    "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "body-parser": "^2.2.0",
