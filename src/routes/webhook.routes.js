@@ -144,7 +144,17 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ---------- STT ----------
-  // ---------- AUDIO (transcribe -> always store transcript text) ----------
+ // ------------------ SESSION ENSURE ------------------
+let session = await CustomerSession.findOne({ phoneNumber: From });
+if (!session) {
+  session = await CustomerSession.create({
+    phoneNumber: From,
+    hasReceivedWelcome: false,
+    conversationHistory: [],
+  });
+}
+
+// ---------- AUDIO ----------
 if (numMedia && mediaType.includes("audio")) {
   console.log("🎤 Audio detected — transcribing...");
   let transcriptResult = { text: "", confidence: 0, used: "none" };
@@ -155,38 +165,19 @@ if (numMedia && mediaType.includes("audio")) {
   } catch (e) {
     console.warn("Transcription failed:", e.message || e);
   }
-  console.log("🗣 STT Transcript:", transcriptResult);
 
-  // If transcript empty, fallback
   const transcriptText =
     transcriptResult?.text?.trim() || "[voice message couldn't be transcribed]";
-
-  // keep original logic
   incomingMsg = incomingMsg && incomingMsg.trim() ? incomingMsg : transcriptText;
 
-  // -----------------------------------------
-  // 🔥 FIX: Ensure session is always defined
-  // -----------------------------------------
-  let session = await CustomerSession.findOne({ phoneNumber: From });
-  if (!session) {
-    session = await CustomerSession.create({
-      phoneNumber: From,
-      hasReceivedWelcome: false,
-      conversationHistory: [],
-    });
-  }
-
-  /***********************************************************
-   * 1️⃣ DOWNLOAD AUDIO FROM WHATSAPP
-   ***********************************************************/
+  // Download audio
   let audioBuffer = null;
   try {
     const audioResponse = await axios.get(mediaUrl, {
       responseType: "arraybuffer",
       headers: {
         Authorization:
-          "Basic " +
-          Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64"),
+          "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64"),
       },
     });
     audioBuffer = Buffer.from(audioResponse.data);
@@ -194,36 +185,31 @@ if (numMedia && mediaType.includes("audio")) {
     console.error("❌ Failed to download WhatsApp audio:", err.message || err);
   }
 
-  /***********************************************************
-   * 2️⃣ UPLOAD AUDIO TO CLOUDINARY
-   ***********************************************************/
+  // Upload to Cloudinary
   let cloudinaryAudioUrl = null;
   if (audioBuffer) {
     try {
       cloudinaryAudioUrl = await uploadToCloudinary(
         audioBuffer,
-        "audio",           // WhatsApp-safe audio
-        "whatsapp/audio"   // folder
+        "audio",
+        "whatsapp/audio"
       );
-
       console.log("☁️ Cloudinary upload success:", cloudinaryAudioUrl);
     } catch (err) {
       console.error("❌ Cloudinary upload failed:", err.message || err);
     }
   }
 
-  /***********************************************************
-   * 3️⃣ STORE AUDIO INSTEAD OF TRANSCRIPT
-   ***********************************************************/
+  // Push audio history
   pushHistory(session, {
     sender: "customer",
     type: "audio",
-    content: cloudinaryAudioUrl || mediaUrl, // final audio URL
+    content: cloudinaryAudioUrl || mediaUrl,
     meta: {
       transcriptConfidence: transcriptResult?.confidence ?? 0,
       transcriptProvider: transcriptResult?.used || "none",
       originalMediaUrl: mediaUrl,
-      transcriptText: transcriptText, // optional
+      transcriptText: transcriptText,
     },
   });
 
