@@ -1,4 +1,3 @@
-// src/routes/webhook.routes.js
 import { Router } from "express";
 import Tesseract from "tesseract.js";
 import fetch from "node-fetch";
@@ -11,7 +10,6 @@ import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
-import axios from "axios"
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
@@ -81,38 +79,14 @@ async function ensurePublicMedia(url, type) {
   }
 }
 
-// persist a message in session history (keeps schema clean)
-function pushHistory(session, { sender, type, content, meta = {} }) {
-  const safeContent = String(content || "").trim() || "[no content]";
-  console.log(`💬 Pushing history: [${sender}] (${type}) -> ${safeContent}`);
+function pushHistory(session, { sender, type, content }) {
+  console.log(`💬 Pushing history: [${sender}] (${type}) -> ${content}`);
   session.conversationHistory.push({
-    sender, // "customer" | "ai"
-    type, // "text" | "audio" | "video" | "image" | "file"
-    content: safeContent,
-    meta, // additional metadata like { transcriptConfidence, originalMediaUrl, ocrText }
+    sender,
+    type,
+    content: String(content || ""),
     timestamp: new Date(),
   });
-}
-
-/**
- * Conservative word overlap check:
- * sharedWords / queryWords
- * returns a fraction 0..1 (higher = better)
- */
-function wordOverlapFraction(queryRaw, questionRaw) {
-  try {
-    const q = normalizeText(queryRaw || "");
-    const p = normalizeText(questionRaw || "");
-    if (!q) return 0;
-    const qWords = q.split(/\s+/).filter(Boolean);
-    const pWords = new Set(p.split(/\s+/).filter(Boolean));
-    if (qWords.length === 0) return 0;
-    let shared = 0;
-    for (const w of qWords) if (pWords.has(w)) shared++;
-    return shared / qWords.length;
-  } catch (e) {
-    return 0;
-  }
 }
 
 r.post("/webhook", withTenant, async (req, res) => {
@@ -146,74 +120,32 @@ r.post("/webhook", withTenant, async (req, res) => {
       const numMedia = parseInt(req.body?.NumMedia || "0", 10);
       const mediaType = req.body?.MediaContentType0 || "";
       const mediaUrl = req.body?.MediaUrl0;
-      let incomingMsg = (req.body?.Body || "").toString();
+      let incomingMsg = req.body?.Body || "";
 
       console.log("📦 numMedia:", numMedia, "mediaType:", mediaType, "mediaUrl:", mediaUrl);
       console.log("💬 incomingMsg (raw):", incomingMsg);
 
-      // ---------- IMAGE (OCR + save url) ----------
+      // ---------- OCR ----------
       if (numMedia && mediaType.startsWith("image/")) {
-        console.log("🖼 Detected image, saving and OCR...");
-        // fetch Twilio CDN with auth
+        console.log("🖼 Detected image, performing OCR...");
         const resp = await fetch(mediaUrl, {
           headers: { Authorization: "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64") },
         });
         const buffer = Buffer.from(await resp.arrayBuffer());
         const uploaded = await uploadToCloudinary(buffer, "image", "receipts");
-        console.log("☁️ Image uploaded to Cloudinary:", uploaded);
-
-        // OCR
-        let ocrText = "";
-        try {
-          const { data: { text } } = await Tesseract.recognize(uploaded, "eng");
-          ocrText = text?.trim() || "";
-          console.log("📄 OCR text:", ocrText);
-        } catch (e) {
-          console.warn("OCR failed:", e.message || e);
-        }
-
-        // store order record
+        const { data: { text } } = await Tesseract.recognize(uploaded, "eng");
+        console.log("📄 OCR text:", text);
         await Order.create({
           phone: From.replace("whatsapp:", ""),
           receiptUrl: uploaded,
-          receiptExtract: { rawText: ocrText },
+          receiptExtract: { rawText: text },
         });
-
-        // ensure session and push both image and OCR text (if any)
-        let session = await CustomerSession.findOne({ phoneNumber: From });
-        if (!session) {
-          session = await CustomerSession.create({
-            phoneNumber: From,
-            hasReceivedWelcome: false,
-            conversationHistory: [],
-          });
-        }
-
-        pushHistory(session, {
-          sender: "customer",
-          type: "image",
-          content: uploaded,
-          meta: { ocrText },
-        });
-
-        if (ocrText) {
-          pushHistory(session, {
-            sender: "customer",
-            type: "text",
-            content: ocrText,
-            meta: { derivedFrom: "ocr" },
-          });
-        }
-        await session.save();
-        // continue processing (we might still want to do QA on the OCR text)
-        incomingMsg = incomingMsg || ocrText || "";
       }
 
-      // ---------- AUDIO (transcribe -> DO NOT save transcript; save audio ONLY) ----------
+      // ---------- STT ----------
+     // ---------- AUDIO (transcribe -> always store transcript text) ----------
 if (numMedia && mediaType.includes("audio")) {
-  console.log("🎤 Audio detected — processing...");
-
-  // 1️⃣ TRANSCRIBE AUDIO (for internal logic only, NOT for saving)
+  console.log("🎤 Audio detected — transcribing...");
   let transcriptResult = { text: "", confidence: 0, used: "none" };
   try {
     transcriptResult = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
@@ -222,10 +154,14 @@ if (numMedia && mediaType.includes("audio")) {
   }
   console.log("🗣 STT Transcript:", transcriptResult);
 
-  // fallback if needed for internal use only
-  incomingMsg = transcriptResult?.text?.trim() || "";
+  // If transcript empty, fallback (internal use only)
+  const transcriptText =
+    transcriptResult?.text?.trim() || "[voice message couldn't be transcribed]";
 
-  // 2️⃣ ENSURE SESSION EXISTS
+  // keep your original logic (incomingMsg override)
+  incomingMsg = incomingMsg && incomingMsg.trim() ? incomingMsg : transcriptText;
+
+  // ensure session exists before storing
   let session = await CustomerSession.findOne({ phoneNumber: From });
   if (!session) {
     session = await CustomerSession.create({
@@ -235,7 +171,9 @@ if (numMedia && mediaType.includes("audio")) {
     });
   }
 
-  // 3️⃣ DOWNLOAD RAW AUDIO
+  /***********************************************************
+   * 1️⃣ DOWNLOAD AUDIO FROM WHATSAPP
+   ***********************************************************/
   let audioBuffer = null;
   try {
     const audioResponse = await axios.get(mediaUrl, { responseType: "arraybuffer" });
@@ -244,58 +182,42 @@ if (numMedia && mediaType.includes("audio")) {
     console.error("❌ Failed to download WhatsApp audio:", err.message || err);
   }
 
-  // 4️⃣ UPLOAD AUDIO TO CLOUDINARY (using your existing uploader)
+  /***********************************************************
+   * 2️⃣ UPLOAD AUDIO TO CLOUDINARY (using your wrapper)
+   ***********************************************************/
   let cloudinaryAudioUrl = null;
   if (audioBuffer) {
     try {
-      cloudinaryAudioUrl = await uploadToCloudinary(audioBuffer, {
-        folder: "whatsapp/audio",
-        resource_type: "video", // required for WhatsApp audio/mp4
-      });
+      // ✅ matches your exact function signature
+      cloudinaryAudioUrl = await uploadToCloudinary(
+        audioBuffer,
+        "audio",            // ensure WhatsApp-compatible audio encoding
+        "whatsapp/audio"    // your folder
+      );
+
       console.log("☁️ Cloudinary upload success:", cloudinaryAudioUrl);
     } catch (err) {
       console.error("❌ Cloudinary upload failed:", err.message || err);
     }
   }
 
-  // 5️⃣ SAVE AUDIO ONLY — NO TRANSCRIPT SAVED IN HISTORY
+  /***********************************************************
+   * 3️⃣ STORE AUDIO INSTEAD OF TRANSCRIPT
+   ***********************************************************/
   pushHistory(session, {
     sender: "customer",
     type: "audio",
-    content: cloudinaryAudioUrl,   // store audio URL, not text
+    content: cloudinaryAudioUrl || mediaUrl,  // audio-only storage
     meta: {
-      transcriptConfidence: transcriptResult.confidence ?? 0,
-      transcriptProvider: transcriptResult.used || "none",
+      transcriptConfidence: transcriptResult?.confidence ?? 0,
+      transcriptProvider: transcriptResult?.used || "none",
       originalMediaUrl: mediaUrl,
+      transcriptText: transcriptText, // optional but still stored
     },
   });
 
   await session.save();
 }
-
-      // ---------- Session ensure (for plain text messages) ----------
-      let session = await CustomerSession.findOne({ phoneNumber: From });
-      if (!session) {
-        session = await CustomerSession.create({
-          phoneNumber: From,
-          hasReceivedWelcome: false,
-          conversationHistory: [],
-        });
-      }
-
-      // If we have a non-empty incoming text (either original or transcribed from audio)
-      if (normalizeText(incomingMsg)) {
-        // But don't duplicate - check last message content
-        const last = session.conversationHistory[session.conversationHistory.length - 1];
-        if (!last || String(last.content || "") !== String(incomingMsg || "")) {
-          pushHistory(session, {
-            sender: "customer",
-            type: "text",
-            content: incomingMsg,
-          });
-          await session.save();
-        }
-      }
 
       // ---------- INTRO ----------
       if (!session.hasReceivedWelcome) {
@@ -367,28 +289,6 @@ if (numMedia && mediaType.includes("audio")) {
       console.log("🔎 Searching QA match for:", incomingMsg);
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
       console.log("🎯 Match result:", match);
-
-      // ---------- NEW FEATURE: skip replies for weak matches ----------
-      if (match) {
-        // conservative overlap fraction threshold
-        const MIN_OVERLAP = Number(process.env.MIN_MATCH_OVERLAP || 0.25);
-        const overlap = wordOverlapFraction(incomingMsg, match.question || "");
-        console.log(`🔍 Overlap fraction with matched question: ${overlap.toFixed(3)} (threshold=${MIN_OVERLAP})`);
-
-        if (overlap < MIN_OVERLAP) {
-          // Weak match — do NOT send any reply. Store nothing extra (we already saved customer message).
-          console.log("⚠️ Weak match detected — skipping reply to avoid incorrect answers.");
-          // Optionally store that a weak match occurred for analytics
-          try {
-            session.meta = session.meta || {};
-            session.meta.lastWeakMatch = { questionId: match._id, overlap, at: new Date() };
-            await session.save();
-          } catch (e) {
-            console.warn("⚠️ Could not save weak-match meta:", e?.message || e);
-          }
-          return;
-        }
-      }
 
       if (match) {
         if (match.answerText && match.answerText.trim() !== "") {
