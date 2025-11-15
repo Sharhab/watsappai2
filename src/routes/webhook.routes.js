@@ -93,6 +93,27 @@ function pushHistory(session, { sender, type, content, meta = {} }) {
   });
 }
 
+/**
+ * Conservative word overlap check:
+ * sharedWords / queryWords
+ * returns a fraction 0..1 (higher = better)
+ */
+function wordOverlapFraction(queryRaw, questionRaw) {
+  try {
+    const q = normalizeText(queryRaw || "");
+    const p = normalizeText(questionRaw || "");
+    if (!q) return 0;
+    const qWords = q.split(/\s+/).filter(Boolean);
+    const pWords = new Set(p.split(/\s+/).filter(Boolean));
+    if (qWords.length === 0) return 0;
+    let shared = 0;
+    for (const w of qWords) if (pWords.has(w)) shared++;
+    return shared / qWords.length;
+  } catch (e) {
+    return 0;
+  }
+}
+
 r.post("/webhook", withTenant, async (req, res) => {
   try {
     res.status(200).send("OK");
@@ -319,6 +340,28 @@ r.post("/webhook", withTenant, async (req, res) => {
       console.log("🔎 Searching QA match for:", incomingMsg);
       const match = normalizeText(incomingMsg) ? await findBestMatch(QA, incomingMsg) : null;
       console.log("🎯 Match result:", match);
+
+      // ---------- NEW FEATURE: skip replies for weak matches ----------
+      if (match) {
+        // conservative overlap fraction threshold
+        const MIN_OVERLAP = Number(process.env.MIN_MATCH_OVERLAP || 0.25);
+        const overlap = wordOverlapFraction(incomingMsg, match.question || "");
+        console.log(`🔍 Overlap fraction with matched question: ${overlap.toFixed(3)} (threshold=${MIN_OVERLAP})`);
+
+        if (overlap < MIN_OVERLAP) {
+          // Weak match — do NOT send any reply. Store nothing extra (we already saved customer message).
+          console.log("⚠️ Weak match detected — skipping reply to avoid incorrect answers.");
+          // Optionally store that a weak match occurred for analytics
+          try {
+            session.meta = session.meta || {};
+            session.meta.lastWeakMatch = { questionId: match._id, overlap, at: new Date() };
+            await session.save();
+          } catch (e) {
+            console.warn("⚠️ Could not save weak-match meta:", e?.message || e);
+          }
+          return;
+        }
+      }
 
       if (match) {
         if (match.answerText && match.answerText.trim() !== "") {
