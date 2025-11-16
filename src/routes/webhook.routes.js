@@ -11,6 +11,7 @@ import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
 import axios from "axios"
+import { pushEvent } from "../routes/sse.routes.js";
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
@@ -212,10 +213,19 @@ if (numMedia && mediaType.includes("audio")) {
       transcriptText: transcriptText,
     },
   });
-
   await session.save();
+  pushEvent("new_message", {
+  phone: session.phoneNumber.replace("whatsapp:", ""),
+  message: {
+    sender,
+    type,
+    content,
+    timestamp: Date.now()
+  }
+});
 }
 
+// After message saved successfully:
 
       // ---------- INTRO ----------
       if (!session.hasReceivedWelcome) {
@@ -242,11 +252,21 @@ if (numMedia && mediaType.includes("audio")) {
               });
               pushHistory(session, { sender: "ai", type: "text", content: step.content || "" });
               await session.save();
+              pushEvent("new_message", {
+  phone: session.phoneNumber.replace("whatsapp:", ""),
+  message: {
+    sender,
+    type,
+    content,
+    timestamp: Date.now()
+  }
+});
               await waitForDelivered(sid?.sid || sid);
               await sleep(INTRO_TEXT_DELAY + jitter());
               continue;
             }
 
+            
             if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
               const url = toAbsoluteUrl(step.fileUrl);
               console.log(`🎬 Sending media: ${url}`);
@@ -258,6 +278,15 @@ if (numMedia && mediaType.includes("audio")) {
               });
               pushHistory(session, { sender: "ai", type: step.type, content: url });
               await session.save();
+              pushEvent("new_message", {
+  phone: session.phoneNumber.replace("whatsapp:", ""),
+  message: {
+    sender,
+    type,
+    content,
+    timestamp: Date.now()
+  }
+});
               await waitForDelivered(sid?.sid || sid);
               await sleep(INTRO_MEDIA_DELAY + jitter());
               continue;
@@ -299,6 +328,15 @@ if (numMedia && mediaType.includes("audio")) {
           });
           pushHistory(session, { sender: "ai", type: "text", content: match.answerText });
           await session.save();
+          pushEvent("new_message", {
+  phone: session.phoneNumber.replace("whatsapp:", ""),
+  message: {
+    sender,
+    type,
+    content,
+    timestamp: Date.now()
+  }
+});
           await waitForDelivered(textSid?.sid || textSid);
         }
 
@@ -327,6 +365,15 @@ if (numMedia && mediaType.includes("audio")) {
 
           pushHistory(session, { sender: "ai", type: "audio", content: url });
           await session.save();
+          pushEvent("new_message", {
+  phone: session.phoneNumber.replace("whatsapp:", ""),
+  message: {
+    sender,
+    type,
+    content,
+    timestamp: Date.now()
+  }
+});
           await waitForDelivered(audSid?.sid || audSid);
         }
 

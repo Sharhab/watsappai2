@@ -22,7 +22,9 @@ import webhookRoutes from "./routes/webhook.routes.js";
 import paymentsRoutes from "./routes/payments.routes.js";
 import { authOptional } from "./middleware/auth.js";
 import messagesRoutes from "./routes/messages.routes.js";
+import SSE from "./src/routes/sse.routes.js";
 
+app.use("/events", SSE);
 
 
 
@@ -33,7 +35,7 @@ async function startServer() {
   app.use(helmet());
   app.use(express.json({ limit: "200mb" }));
   app.use(express.urlencoded({ extended: true }));
-
+  app.use("/events", SSE);
 
   // CORS
   app.use(
