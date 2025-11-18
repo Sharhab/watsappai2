@@ -11,7 +11,7 @@ import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
 import axios from "axios"
-import { pushEvent } from "../routes/sse.routes.js";
+import { pushEvent } from "../utils/realtime.js"; // <-- new import
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
@@ -142,6 +142,23 @@ r.post("/webhook", withTenant, async (req, res) => {
           receiptUrl: uploaded,
           receiptExtract: { rawText: text },
         });
+        // notify frontend
+pushEvent("new_message", {
+  phone: session.phoneNumber.replace("whatsapp:", ""),
+  message: {
+    sender: "customer",
+    type: "image",
+    content: uploaded,
+    timestamp: Date.now(),
+    meta: { ocrText } // optional
+  }
+}, { phone: session.phoneNumber.replace("whatsapp:", "") });
+
+// increase unread and emit unread update
+const phoneKey = session.phoneNumber.replace("whatsapp:", "");
+// If you maintain unread in DB, increment there. For speed, also push event:
+pushEvent("unread_update", { phone: phoneKey, unread: (session.unreadCount || 0) }, { phone: phoneKey });
+
       }
 
       // ---------- STT ----------
@@ -214,15 +231,29 @@ if (numMedia && mediaType.includes("audio")) {
     },
   });
   await session.save();
-  pushEvent("new_message", {
-  phone: session.phoneNumber.replace("whatsapp:", ""),
+const phoneKey = session.phoneNumber.replace("whatsapp:", "");
+pushEvent("new_message", {
+  phone: phoneKey,
   message: {
-    sender,
-    type,
-    content,
-    timestamp: Date.now()
+    sender: "customer",
+    type: "audio",
+    content: cloudinaryAudioUrl || mediaUrl,
+    timestamp: Date.now(),
+    meta: {
+      transcriptConfidence: transcriptResult?.confidence ?? 0,
+      transcriptProvider: transcriptResult?.used || "none",
+      transcriptText: transcriptResult?.text || ""
+    }
   }
-});
+}, { phone: phoneKey });
+
+// increment unread in-memory (your unread endpoint / router handles increment too)
+pushEvent("unread_update", { phone: phoneKey, unread: (session.unreadCount || 0) }, { phone: phoneKey });
+
+// mark online
+pushEvent("online_status", { phone: phoneKey, status: "online" }, { phone: phoneKey });
+
+
 }
 
 // After message saved successfully:
@@ -250,17 +281,21 @@ if (numMedia && mediaType.includes("audio")) {
                 body: step.content || "",
                 ...(statusCallback ? { statusCallback } : {}),
               });
-              pushHistory(session, { sender: "ai", type: "text", content: step.content || "" });
-              await session.save();
-              pushEvent("new_message", {
-  phone: session.phoneNumber.replace("whatsapp:", ""),
+             const phoneKey = session.phoneNumber.replace("whatsapp:", "");
+pushEvent("new_message", {
+  phone: phoneKey,
   message: {
-    sender,
-    type,
-    content,
-    timestamp: Date.now()
+    sender: "ai",
+    type: match.answerText ? "text" : (match.answerAudio ? "audio" : "text"),
+    content: match.answerText || match.answerAudio || "",
+    timestamp: Date.now(),
   }
-});
+}, { phone: phoneKey });
+
+// if you want to notify operator UI the message was sent
+pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { phone: phoneKey });
+
+
               await waitForDelivered(sid?.sid || sid);
               await sleep(INTRO_TEXT_DELAY + jitter());
               continue;
@@ -278,15 +313,21 @@ if (numMedia && mediaType.includes("audio")) {
               });
               pushHistory(session, { sender: "ai", type: step.type, content: url });
               await session.save();
-              pushEvent("new_message", {
-  phone: session.phoneNumber.replace("whatsapp:", ""),
+               const phoneKey = session.phoneNumber.replace("whatsapp:", "");
+pushEvent("new_message", {
+  phone: phoneKey,
   message: {
-    sender,
-    type,
-    content,
-    timestamp: Date.now()
+    sender: "ai",
+    type: match.answerText ? "text" : (match.answerAudio ? "audio" : "text"),
+    content: match.answerText || match.answerAudio || "",
+    timestamp: Date.now(),
   }
-});
+}, { phone: phoneKey });
+
+// if you want to notify operator UI the message was sent
+pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { phone: phoneKey });
+
+             
               await waitForDelivered(sid?.sid || sid);
               await sleep(INTRO_MEDIA_DELAY + jitter());
               continue;
@@ -328,15 +369,22 @@ if (numMedia && mediaType.includes("audio")) {
           });
           pushHistory(session, { sender: "ai", type: "text", content: match.answerText });
           await session.save();
-          pushEvent("new_message", {
-  phone: session.phoneNumber.replace("whatsapp:", ""),
+          const phoneKey = session.phoneNumber.replace("whatsapp:", "");
+pushEvent("new_message", {
+  phone: phoneKey,
   message: {
-    sender,
-    type,
-    content,
-    timestamp: Date.now()
+    sender: "ai",
+    type: match.answerText ? "text" : (match.answerAudio ? "audio" : "text"),
+    content: match.answerText || match.answerAudio || "",
+    timestamp: Date.now(),
   }
-});
+}, { phone: phoneKey });
+
+// if you want to notify operator UI the message was sent
+pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { phone: phoneKey });
+
+
+
           await waitForDelivered(textSid?.sid || textSid);
         }
 
@@ -365,15 +413,20 @@ if (numMedia && mediaType.includes("audio")) {
 
           pushHistory(session, { sender: "ai", type: "audio", content: url });
           await session.save();
-          pushEvent("new_message", {
-  phone: session.phoneNumber.replace("whatsapp:", ""),
+         const phoneKey = session.phoneNumber.replace("whatsapp:", "");
+pushEvent("new_message", {
+  phone: phoneKey,
   message: {
-    sender,
-    type,
-    content,
-    timestamp: Date.now()
+    sender: "ai",
+    type: match.answerText ? "text" : (match.answerAudio ? "audio" : "text"),
+    content: match.answerText || match.answerAudio || "",
+    timestamp: Date.now(),
   }
-});
+}, { phone: phoneKey });
+
+// if you want to notify operator UI the message was sent
+pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { phone: phoneKey });
+
           await waitForDelivered(audSid?.sid || audSid);
         }
 

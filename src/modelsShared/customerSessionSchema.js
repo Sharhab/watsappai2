@@ -26,6 +26,7 @@ const customerSessionSchema = new mongoose.Schema(
     hasReceivedWelcome: { type: Boolean, default: false },
     answeredQuestions: [{ type: mongoose.Schema.Types.ObjectId, ref: "QA" }],
     conversationHistory: { type: [conversationEntrySchema], default: [] },
+    unreadCount: { type: Number, default: 0 },
     adSource: {
       headline: { type: String, default: null },
       source: { type: String, default: null },
@@ -33,6 +34,7 @@ const customerSessionSchema = new mongoose.Schema(
       ctwa_clid: { type: String, default: null },
     },
   },
+  
   { timestamps: true }
 );
 

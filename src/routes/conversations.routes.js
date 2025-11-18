@@ -4,51 +4,52 @@ import { withTenant } from "../middleware/withTenant.js";
 const router = express.Router();
 
 /**
- * ⭐ ADDED: in-memory typing + status tracking
- * (You can move to DB later, but this works instantly)
+ * ⭐ ADDED: In-memory states
+ * (Fast + works instantly — can move to DB later)
  */
-const typingState = new Map();      // phone → { typing: true/false }
-const onlineState = new Map();      // phone → timestamp last active
-const unreadCount = new Map();      // phone → unread number
+const typingState = new Map();      // phone → { typing: bool }
+const onlineState = new Map();      // phone → timestamp
+const unreadCount = new Map();      // phone → number
 
 
-/** 
- * ⭐ Small helper: mark user online whenever conversation is fetched
- */
+// ------------------------------------------------------
+// ⭐ Helper: Mark someone online
+// ------------------------------------------------------
 function markOnline(phone) {
   onlineState.set(phone, Date.now());
 }
 
-/**
- * ⭐ Detect offline after 30 seconds of inactivity
- */
+// ------------------------------------------------------
+// ⭐ A user is online if last activity < 30 seconds
+// ------------------------------------------------------
 function isOnline(phone) {
   const ts = onlineState.get(phone);
   if (!ts) return false;
   return Date.now() - ts < 30_000;
 }
 
-/**
- * Normalize preview for sidebar
- */
+// ------------------------------------------------------
+// ⭐ Helper to generate preview text
+// ------------------------------------------------------
 function previewText(msg) {
-  if (!msg) return "[no messages]";
+  if (!msg) return "[No messages]";
 
   let c = Array.isArray(msg.content) ? msg.content[0] : msg.content;
 
-  if (!c || c === "") {
+  if (!c) {
     if (msg.type === "audio") return "🎤 Voice Message";
     if (msg.type === "video") return "🎞 Video";
     if (msg.type === "image") return "🖼 Image";
     return "[empty]";
   }
 
-  return c.length > 35 ? c.slice(0, 35) + "…" : c;
+  return c.length > 40 ? c.slice(0, 40) + "…" : c;
 }
 
 
+
 // ======================================================
-//  ✅ GET all conversations (sidebar)  + unread + status
+//  ✅ GET ALL CONVERSATIONS (Sidebar)
 // ======================================================
 router.get("/", withTenant, async (req, res) => {
   try {
@@ -68,18 +69,18 @@ router.get("/", withTenant, async (req, res) => {
         lastType: last?.type || "text",
         lastTimestamp: last?.timestamp || s.updatedAt,
 
-        // ⭐ ADDED: unread count
+        // ⭐ Use memory unread state
         unread: unreadCount.get(phone) || 0,
 
-        // ⭐ ADDED: online/offline
+        // ⭐ Real-time online status
         online: isOnline(phone),
       };
     });
 
     res.json({ conversations });
 
-  } catch (error) {
-    console.error("❌ Error fetching conversations:", error);
+  } catch (err) {
+    console.error("❌ Error fetching conversations:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -87,25 +88,37 @@ router.get("/", withTenant, async (req, res) => {
 
 
 // ======================================================
-//  ✅ GET conversation by phone  + mark read + online
+//  ✅ GET SINGLE CONVERSATION
+//  ⭐ Marks chat as READ instantly
 // ======================================================
 router.get("/:phone", withTenant, async (req, res) => {
   try {
     const { CustomerSession } = req.models;
 
-    const phone = req.params.phone.startsWith("whatsapp:")
-      ? req.params.phone.replace("whatsapp:", "")
-      : req.params.phone;
+    const phone = req.params.phone.replace("whatsapp:", "");
+    const dbPhone = `whatsapp:${phone}`;
 
-    // ⭐ Mark this chat as online
+    // ⭐ Mark online
     markOnline(phone);
 
-    const dbPhone = `whatsapp:${phone}`;
-    const session = await CustomerSession.findOne({ phoneNumber: dbPhone }).lean();
+    const session = await CustomerSession.findOne({ phoneNumber: dbPhone });
 
     if (!session) {
       return res.status(404).json({ error: "Conversation not found" });
     }
+
+    // ⭐ Reset unread count in memory
+    unreadCount.set(phone, 0);
+
+    // ⭐ Reset unread count in DB
+    session.unreadCount = 0;
+    await session.save();
+
+    // ⭐ Push event to frontend
+    pushEvent("unread_update", {
+      phone,
+      unread: 0
+    });
 
     const conversationHistory = (session.conversationHistory || []).map((msg) => ({
       sender: msg.sender,
@@ -114,19 +127,14 @@ router.get("/:phone", withTenant, async (req, res) => {
       timestamp: msg.timestamp || session.updatedAt,
     }));
 
-    // ⭐ Mark unread messages as read
-    unreadCount.set(phone, 0);
-
     res.json({
       phone,
       conversationHistory,
-
-      // ⭐ Return online/offline status
       online: isOnline(phone),
     });
 
-  } catch (error) {
-    console.error("❌ Error fetching conversation:", error);
+  } catch (err) {
+    console.error("❌ Error fetching conversation:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -134,7 +142,7 @@ router.get("/:phone", withTenant, async (req, res) => {
 
 
 // ======================================================
-//  ⭐ NEW ENDPOINT: Get typing status
+//  ✅ TYPING — GET
 // ======================================================
 router.get("/:phone/typing", (req, res) => {
   const phone = req.params.phone.replace("whatsapp:", "");
@@ -144,21 +152,20 @@ router.get("/:phone/typing", (req, res) => {
 
 
 // ======================================================
-//  ⭐ NEW ENDPOINT: Set typing status
-//  Call this when customer or AI is typing
+//  ✅ TYPING — SET
 // ======================================================
 router.post("/:phone/typing", (req, res) => {
   const phone = req.params.phone.replace("whatsapp:", "");
   const { typing } = req.body;
-
   typingState.set(phone, { typing: !!typing });
 
   res.json({ success: true, typing: !!typing });
 });
 
 
+
 // ======================================================
-//  ⭐ NEW ENDPOINT: Get online/offline status
+//  ✅ REAL-TIME STATUS (ONLINE/OFFLINE)
 // ======================================================
 router.get("/:phone/status", (req, res) => {
   const phone = req.params.phone.replace("whatsapp:", "");
@@ -166,14 +173,16 @@ router.get("/:phone/status", (req, res) => {
 });
 
 
+
 // ======================================================
-//  ⭐ OPTIONAL: Mark message as unread (called by webhook)
+//  ⭐ Mark message as UNREAD (Used by webhook)
 // ======================================================
 router.post("/:phone/unread", (req, res) => {
   const phone = req.params.phone.replace("whatsapp:", "");
   unreadCount.set(phone, (unreadCount.get(phone) || 0) + 1);
   res.json({ success: true });
 });
+
 
 
 export default router;
