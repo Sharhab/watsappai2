@@ -92,13 +92,14 @@ export async function findBestMatch(QACollection, userText) {
 
   console.log(`🎯 Best score: ${bestScore.toFixed(3)} (threshold=${MIN_SCORE})`);
 
+  // ⛔ STRICT MATCHING — AI stays silent if weak match
   if (bestScore >= MIN_SCORE) {
-    console.log("✅ Matched QA:", best.qa.question);
+    console.log("✅ Strong QA match:", best.qa.question);
     return best.qa;
   }
 
-  console.log("❌ No strong match found — using text fallback...");
-  return await textFallback(QACollection, query);
+  console.log("🚫 No strong match — AI will stay silent");
+  return null; // <-- IMPORTANT
 }
 
 /**
