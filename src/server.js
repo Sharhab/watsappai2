@@ -19,18 +19,21 @@ import messagesRoutes from "./routes/messages.routes.js";
 
 import { authOptional } from "./middleware/auth.js";
 
-// ⬅️ NEW: Socket.IO Realtime
+// Realtime / Socket.IO
 import http from "http";
-import { initRealtime } from "./utils/realtime.js";
+import { initRealtime, pushEvent as sendEvent } from "./utils/realtime.js";
 
 async function startServer() {
   const app = express();
 
-  // ✔️ Create HTTP server for Socket.IO
+  // ✔️ Create HTTP server BEFORE initializing Socket.IO
   const server = http.createServer(app);
 
-  // ✔️ Initialize realtime & expose pushEvent globally
-  global.pushEvent = initRealtime(server);
+  // ✔️ Initialize realtime ONCE
+  initRealtime(server);
+
+  // ✔️ Expose pushEvent to all files
+  global.pushEvent = sendEvent;
 
   // Security
   app.use(helmet());
@@ -52,15 +55,14 @@ async function startServer() {
     })
   );
 
-  // ⬅️ DB Connection
+  // DB Connection
   try {
-    console.log("GCP client email env:", process.env.GCP_CLIENT_EMAIL);
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 10000,
     });
     console.log("✅ Master DB connected");
   } catch (err) {
-    console.error("❌ Master DB connection failed:", err.message);
+    console.error("❌ DB connection failed:", err.message);
     process.exit(1);
   }
 
@@ -74,16 +76,16 @@ async function startServer() {
   app.use("/api/qas", qaRoutes);
   app.use("/api/intro", introRoutes);
   app.use("/api/orders", ordersRoutes);
-  app.use("/", webhookRoutes); // twilio webhook
+  app.use("/", webhookRoutes);
   app.use("/api/payments", paymentsRoutes);
   app.use("/api/conversations", conversationsRoutes);
   app.use("/api/messages", messagesRoutes);
 
+  // Start API + Realtime server
   const port = process.env.PORT || 3000;
   server.listen(port, () => {
-    console.log(`🚀 API + REALTIME running at http://localhost:${port}`);
+    console.log(`🚀 API + REALTIME running on port ${port}`);
   });
 }
 
-// Start
 startServer();

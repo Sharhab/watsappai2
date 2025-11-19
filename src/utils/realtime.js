@@ -4,32 +4,64 @@ import { Server as IOServer } from "socket.io";
 let io = null;
 
 /**
- * Initialize Socket.IO server.
- * Call once after httpServer.listen() (or before, but pass server).
- * Returns the io instance.
+ * Initialize Socket.IO server with correct CORS for Render + local dev.
  */
-export function initRealtime(httpServer, { cors = { origin: "*" } } = {}) {
+export function initRealtime(httpServer) {
   if (io) return io;
-  io = new IOServer(httpServer, { cors });
+
+  io = new IOServer(httpServer, {
+    cors: {
+      origin: [
+        "http://localhost:5173",
+        "https://watsappai.onrender.com",
+        "https://watsappai2.onrender.com",
+      ],
+      methods: ["GET", "POST"],
+      credentials: true,
+      transports: ["polling", "websocket"]
+    },
+    allowEIO3: true,
+  });
+
   io.on("connection", (socket) => {
-    // join a room for the tenant or phone if client asks
+    console.log("⚡ Client connected:", socket.id);
+
     socket.on("subscribe", (payload) => {
-      // payload: { phone } or { tenantId }
       try {
-        if (payload?.phone) socket.join(`phone:${payload.phone}`);
-        if (payload?.tenantId) socket.join(`tenant:${payload.tenantId}`);
-      } catch (e) {
-        console.warn("subscribe error", e?.message || e);
+        if (!payload) return;
+
+        if (payload.phone) {
+          socket.join(`phone:${payload.phone}`);
+          console.log(`📌 Joined phone room: phone:${payload.phone}`);
+        }
+
+        if (payload.tenantId) {
+          socket.join(`tenant:${payload.tenantId}`);
+          console.log(`📌 Joined tenant room: tenant:${payload.tenantId}`);
+        }
+      } catch (err) {
+        console.warn("subscribe error:", err.message);
       }
     });
 
     socket.on("unsubscribe", (payload) => {
-      if (payload?.phone) socket.leave(`phone:${payload.phone}`);
-      if (payload?.tenantId) socket.leave(`tenant:${payload.tenantId}`);
+      try {
+        if (!payload) return;
+
+        if (payload.phone) {
+          socket.leave(`phone:${payload.phone}`);
+        }
+
+        if (payload.tenantId) {
+          socket.leave(`tenant:${payload.tenantId}`);
+        }
+      } catch (err) {
+        console.warn("unsubscribe error:", err.message);
+      }
     });
 
     socket.on("disconnect", () => {
-      // nothing special for now
+      console.log("❌ Client disconnected:", socket.id);
     });
   });
 
@@ -38,33 +70,34 @@ export function initRealtime(httpServer, { cors = { origin: "*" } } = {}) {
 }
 
 /**
- * Emit event to either a specific phone or tenant room (or broadcast).
- * If `opts.phone` provided -> emit to socket room `phone:${phone}`.
- * If `opts.tenantId` provided -> emit to socket room `tenant:${tenantId}`.
- * Otherwise emits to all connected sockets (useful for admin).
+ * Emit event to phone-specific or tenant-specific rooms.
  */
 export function pushEvent(eventName, payload = {}, opts = {}) {
   if (!io) {
-    console.warn("pushEvent: realtime not initialized, skipping", eventName);
+    console.warn("pushEvent: realtime not initialized → skipped:", eventName);
     return;
   }
 
-  if (opts.phone) {
-    io.to(`phone:${opts.phone}`).emit(eventName, payload);
-  }
+  try {
+    if (opts.phone) {
+      io.to(`phone:${opts.phone}`).emit(eventName, payload);
+      return; // only emit to phone room
+    }
 
-  if (opts.tenantId) {
-    io.to(`tenant:${opts.tenantId}`).emit(eventName, payload);
-  }
+    if (opts.tenantId) {
+      io.to(`tenant:${opts.tenantId}`).emit(eventName, payload);
+      return; // only emit to tenant room
+    }
 
-  // Always emit a tenant-wide broadcast too if requested
-  if (!opts.phone && !opts.tenantId) {
+    // broadcast globally
     io.emit(eventName, payload);
+  } catch (err) {
+    console.error("pushEvent error:", err.message);
   }
 }
 
 /**
- * Return io instance (for direct use if needed)
+ * Allow direct access to io if needed.
  */
 export function getIo() {
   return io;

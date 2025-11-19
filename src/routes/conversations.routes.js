@@ -177,11 +177,15 @@ router.get("/:phone/status", (req, res) => {
 // ======================================================
 //  ⭐ Mark message as UNREAD (Used by webhook)
 // ======================================================
-router.post("/:phone/unread", (req, res) => {
+router.post("/:phone/mark-read", (req, res) => {
   const phone = req.params.phone.replace("whatsapp:", "");
-  unreadCount.set(phone, (unreadCount.get(phone) || 0) + 1);
+  unreadCount.set(phone, 0);
+
+  pushEvent("unread_update", { phone, unread: 0 });
+
   res.json({ success: true });
 });
+
 
 
 
