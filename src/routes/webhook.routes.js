@@ -10,7 +10,6 @@ import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
-import axios from "axios"
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
@@ -144,29 +143,25 @@ r.post("/webhook", withTenant, async (req, res) => {
       }
 
       // ---------- STT ----------
-  // ---------- AUDIO (transcribe -> always store transcript text) ----------
+     // ---------- AUDIO (transcribe -> always store transcript text) ----------
 if (numMedia && mediaType.includes("audio")) {
   console.log("🎤 Audio detected — transcribing...");
   let transcriptResult = { text: "", confidence: 0, used: "none" };
   try {
-    transcriptResult = await withRetry(() =>
-      transcribeAudio(mediaUrl, AccountSid, AuthToken)
-    );
+    transcriptResult = await withRetry(() => transcribeAudio(mediaUrl, AccountSid, AuthToken));
   } catch (e) {
     console.warn("Transcription failed:", e.message || e);
   }
   console.log("🗣 STT Transcript:", transcriptResult);
 
-  // If transcript empty, fallback
+  // If transcript empty, fallback (internal use only)
   const transcriptText =
     transcriptResult?.text?.trim() || "[voice message couldn't be transcribed]";
 
-  // keep original logic
+  // keep your original logic (incomingMsg override)
   incomingMsg = incomingMsg && incomingMsg.trim() ? incomingMsg : transcriptText;
 
-  // -----------------------------------------
-  // 🔥 FIX: Ensure session is always defined
-  // -----------------------------------------
+  // ensure session exists before storing
   let session = await CustomerSession.findOne({ phoneNumber: From });
   if (!session) {
     session = await CustomerSession.create({
@@ -181,29 +176,23 @@ if (numMedia && mediaType.includes("audio")) {
    ***********************************************************/
   let audioBuffer = null;
   try {
-    const audioResponse = await axios.get(mediaUrl, {
-      responseType: "arraybuffer",
-      headers: {
-        Authorization:
-          "Basic " +
-          Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64"),
-      },
-    });
+    const audioResponse = await axios.get(mediaUrl, { responseType: "arraybuffer" });
     audioBuffer = Buffer.from(audioResponse.data);
   } catch (err) {
     console.error("❌ Failed to download WhatsApp audio:", err.message || err);
   }
 
   /***********************************************************
-   * 2️⃣ UPLOAD AUDIO TO CLOUDINARY
+   * 2️⃣ UPLOAD AUDIO TO CLOUDINARY (using your wrapper)
    ***********************************************************/
   let cloudinaryAudioUrl = null;
   if (audioBuffer) {
     try {
+      // ✅ matches your exact function signature
       cloudinaryAudioUrl = await uploadToCloudinary(
         audioBuffer,
-        "audio",           // WhatsApp-safe audio
-        "whatsapp/audio"   // folder
+        "audio",            // ensure WhatsApp-compatible audio encoding
+        "whatsapp/audio"    // your folder
       );
 
       console.log("☁️ Cloudinary upload success:", cloudinaryAudioUrl);
@@ -218,18 +207,17 @@ if (numMedia && mediaType.includes("audio")) {
   pushHistory(session, {
     sender: "customer",
     type: "audio",
-    content: cloudinaryAudioUrl || mediaUrl, // final audio URL
+    content: cloudinaryAudioUrl || mediaUrl,  // audio-only storage
     meta: {
       transcriptConfidence: transcriptResult?.confidence ?? 0,
       transcriptProvider: transcriptResult?.used || "none",
       originalMediaUrl: mediaUrl,
-      transcriptText: transcriptText, // optional
+      transcriptText: transcriptText, // optional but still stored
     },
   });
 
   await session.save();
 }
-
 
       // ---------- INTRO ----------
       if (!session.hasReceivedWelcome) {
