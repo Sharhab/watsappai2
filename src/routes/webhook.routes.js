@@ -11,7 +11,6 @@ import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
 import axios from "axios"
-import { pushEvent } from "../utils/realtime.js"; // <-- new import
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
@@ -142,37 +141,10 @@ r.post("/webhook", withTenant, async (req, res) => {
           receiptUrl: uploaded,
           receiptExtract: { rawText: text },
         });
-        // notify frontend
-pushEvent("new_message", {
-  phone: session.phoneNumber.replace("whatsapp:", ""),
-  message: {
-    sender: "customer",
-    type: "image",
-    content: uploaded,
-    timestamp: Date.now(),
-    meta: { ocrText } // optional
-  }
-}, { phone: session.phoneNumber.replace("whatsapp:", "") });
-
-// increase unread and emit unread update
-const phoneKey = session.phoneNumber.replace("whatsapp:", "");
-// If you maintain unread in DB, increment there. For speed, also push event:
-pushEvent("unread_update", { phone: phoneKey, unread: (session.unreadCount || 0) }, { phone: phoneKey });
-
       }
 
       // ---------- STT ----------
- // ------------------ SESSION ENSURE ------------------
-let session = await CustomerSession.findOne({ phoneNumber: From });
-if (!session) {
-  session = await CustomerSession.create({
-    phoneNumber: From,
-    hasReceivedWelcome: false,
-    conversationHistory: [],
-  });
-}
-
-// ---------- AUDIO ----------
+  // ---------- AUDIO (transcribe -> always store transcript text) ----------
 if (numMedia && mediaType.includes("audio")) {
   console.log("🎤 Audio detected — transcribing...");
   let transcriptResult = { text: "", confidence: 0, used: "none" };
@@ -183,19 +155,38 @@ if (numMedia && mediaType.includes("audio")) {
   } catch (e) {
     console.warn("Transcription failed:", e.message || e);
   }
+  console.log("🗣 STT Transcript:", transcriptResult);
 
+  // If transcript empty, fallback
   const transcriptText =
     transcriptResult?.text?.trim() || "[voice message couldn't be transcribed]";
+
+  // keep original logic
   incomingMsg = incomingMsg && incomingMsg.trim() ? incomingMsg : transcriptText;
 
-  // Download audio
+  // -----------------------------------------
+  // 🔥 FIX: Ensure session is always defined
+  // -----------------------------------------
+  let session = await CustomerSession.findOne({ phoneNumber: From });
+  if (!session) {
+    session = await CustomerSession.create({
+      phoneNumber: From,
+      hasReceivedWelcome: false,
+      conversationHistory: [],
+    });
+  }
+
+  /***********************************************************
+   * 1️⃣ DOWNLOAD AUDIO FROM WHATSAPP
+   ***********************************************************/
   let audioBuffer = null;
   try {
     const audioResponse = await axios.get(mediaUrl, {
       responseType: "arraybuffer",
       headers: {
         Authorization:
-          "Basic " + Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64"),
+          "Basic " +
+          Buffer.from(`${AccountSid}:${AuthToken}`).toString("base64"),
       },
     });
     audioBuffer = Buffer.from(audioResponse.data);
@@ -203,60 +194,42 @@ if (numMedia && mediaType.includes("audio")) {
     console.error("❌ Failed to download WhatsApp audio:", err.message || err);
   }
 
-  // Upload to Cloudinary
+  /***********************************************************
+   * 2️⃣ UPLOAD AUDIO TO CLOUDINARY
+   ***********************************************************/
   let cloudinaryAudioUrl = null;
   if (audioBuffer) {
     try {
       cloudinaryAudioUrl = await uploadToCloudinary(
         audioBuffer,
-        "audio",
-        "whatsapp/audio"
+        "audio",           // WhatsApp-safe audio
+        "whatsapp/audio"   // folder
       );
+
       console.log("☁️ Cloudinary upload success:", cloudinaryAudioUrl);
     } catch (err) {
       console.error("❌ Cloudinary upload failed:", err.message || err);
     }
   }
 
-  // Push audio history
+  /***********************************************************
+   * 3️⃣ STORE AUDIO INSTEAD OF TRANSCRIPT
+   ***********************************************************/
   pushHistory(session, {
     sender: "customer",
     type: "audio",
-    content: cloudinaryAudioUrl || mediaUrl,
+    content: cloudinaryAudioUrl || mediaUrl, // final audio URL
     meta: {
       transcriptConfidence: transcriptResult?.confidence ?? 0,
       transcriptProvider: transcriptResult?.used || "none",
       originalMediaUrl: mediaUrl,
-      transcriptText: transcriptText,
+      transcriptText: transcriptText, // optional
     },
   });
+
   await session.save();
-const phoneKey = session.phoneNumber.replace("whatsapp:", "");
-pushEvent("new_message", {
-  phone: phoneKey,
-  message: {
-    sender: "customer",
-    type: "audio",
-    content: cloudinaryAudioUrl || mediaUrl,
-    timestamp: Date.now(),
-    meta: {
-      transcriptConfidence: transcriptResult?.confidence ?? 0,
-      transcriptProvider: transcriptResult?.used || "none",
-      transcriptText: transcriptResult?.text || ""
-    }
-  }
-}, { phone: phoneKey });
-
-// increment unread in-memory (your unread endpoint / router handles increment too)
-pushEvent("unread_update", { phone: phoneKey, unread: (session.unreadCount || 0) }, { phone: phoneKey });
-
-// mark online
-pushEvent("online_status", { phone: phoneKey, status: "online" }, { phone: phoneKey });
-
-
 }
 
-// After message saved successfully:
 
       // ---------- INTRO ----------
       if (!session.hasReceivedWelcome) {
@@ -281,27 +254,13 @@ pushEvent("online_status", { phone: phoneKey, status: "online" }, { phone: phone
                 body: step.content || "",
                 ...(statusCallback ? { statusCallback } : {}),
               });
-             const phoneKey = session.phoneNumber.replace("whatsapp:", "");
-pushEvent("new_message", {
-  phone: phoneKey,
-  message: {
-    sender: "ai",
-    type: match.answerText ? "text" : (match.answerAudio ? "audio" : "text"),
-    content: match.answerText || match.answerAudio || "",
-    timestamp: Date.now(),
-  }
-}, { phone: phoneKey });
-
-// if you want to notify operator UI the message was sent
-pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { phone: phoneKey });
-
-
+              pushHistory(session, { sender: "ai", type: "text", content: step.content || "" });
+              await session.save();
               await waitForDelivered(sid?.sid || sid);
               await sleep(INTRO_TEXT_DELAY + jitter());
               continue;
             }
 
-            
             if ((step.type === "audio" || step.type === "video") && step.fileUrl) {
               const url = toAbsoluteUrl(step.fileUrl);
               console.log(`🎬 Sending media: ${url}`);
@@ -313,21 +272,6 @@ pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { p
               });
               pushHistory(session, { sender: "ai", type: step.type, content: url });
               await session.save();
-               const phoneKey = session.phoneNumber.replace("whatsapp:", "");
-pushEvent("new_message", {
-  phone: phoneKey,
-  message: {
-    sender: "ai",
-    type: match.answerText ? "text" : (match.answerAudio ? "audio" : "text"),
-    content: match.answerText || match.answerAudio || "",
-    timestamp: Date.now(),
-  }
-}, { phone: phoneKey });
-
-// if you want to notify operator UI the message was sent
-pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { phone: phoneKey });
-
-             
               await waitForDelivered(sid?.sid || sid);
               await sleep(INTRO_MEDIA_DELAY + jitter());
               continue;
@@ -369,22 +313,6 @@ pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { p
           });
           pushHistory(session, { sender: "ai", type: "text", content: match.answerText });
           await session.save();
-          const phoneKey = session.phoneNumber.replace("whatsapp:", "");
-pushEvent("new_message", {
-  phone: phoneKey,
-  message: {
-    sender: "ai",
-    type: match.answerText ? "text" : (match.answerAudio ? "audio" : "text"),
-    content: match.answerText || match.answerAudio || "",
-    timestamp: Date.now(),
-  }
-}, { phone: phoneKey });
-
-// if you want to notify operator UI the message was sent
-pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { phone: phoneKey });
-
-
-
           await waitForDelivered(textSid?.sid || textSid);
         }
 
@@ -413,20 +341,6 @@ pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { p
 
           pushHistory(session, { sender: "ai", type: "audio", content: url });
           await session.save();
-         const phoneKey = session.phoneNumber.replace("whatsapp:", "");
-pushEvent("new_message", {
-  phone: phoneKey,
-  message: {
-    sender: "ai",
-    type: match.answerText ? "text" : (match.answerAudio ? "audio" : "text"),
-    content: match.answerText || match.answerAudio || "",
-    timestamp: Date.now(),
-  }
-}, { phone: phoneKey });
-
-// if you want to notify operator UI the message was sent
-pushEvent("message_sent", { phone: phoneKey, sid: textSid?.sid || textSid }, { phone: phoneKey });
-
           await waitForDelivered(audSid?.sid || audSid);
         }
 
