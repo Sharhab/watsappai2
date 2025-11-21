@@ -126,6 +126,18 @@ r.post("/webhook", withTenant, async (req, res) => {
       console.log("📦 numMedia:", numMedia, "mediaType:", mediaType, "mediaUrl:", mediaUrl);
       console.log("💬 incomingMsg (raw):", incomingMsg);
 
+/******** ENSURE SESSION ********/
+let session = await CustomerSession.findOne({ phoneNumber: From });
+
+if (!session) {
+  session = await CustomerSession.create({
+    phoneNumber: From,
+    hasReceivedWelcome: false,
+    conversationHistory: [],
+  });
+}
+
+
       // ---------- OCR ----------
       if (numMedia && mediaType.startsWith("image/")) {
         console.log("🖼 Detected image, performing OCR...");
@@ -161,16 +173,6 @@ if (numMedia && mediaType.includes("audio")) {
 
   // keep your original logic (incomingMsg override)
   incomingMsg = incomingMsg && incomingMsg.trim() ? incomingMsg : transcriptText;
-
-  // ensure session exists before storing
-  let session = await CustomerSession.findOne({ phoneNumber: From });
-  if (!session) {
-    session = await CustomerSession.create({
-      phoneNumber: From,
-      hasReceivedWelcome: false,
-      conversationHistory: [],
-    });
-  }
 
   /***********************************************************
    * 1️⃣ DOWNLOAD AUDIO FROM WHATSAPP
