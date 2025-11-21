@@ -10,6 +10,7 @@ import { findBestMatch, normalizeText } from "../utils/matching.js";
 import { toAbsoluteUrl } from "../utils/media.js";
 import { sendTemplate, sendWithRetry } from "../utils/senders.js";
 import { encodeForWhatsApp } from "../utils/encodeForWhatsApp.js";
+import axios from "axios";
 
 const r = Router();
 const INTRO_DELAY = Number(process.env.INTRO_DELAY_MS || 800);
